@@ -1,0 +1,61 @@
+{
+  "name": "dsh-zcode-cli-proxy",
+  "version": "0.3.2",
+  "description": "dsh-zcode cli反代：把 DSH 的模型请求经 ZCode 客户端 app-server 转接到 ZCode Start Plan 额度（GLM 系列，真流式、图片输入、会话复用），注册成 DSH 可直接选用的模型提供方。本仓库为 kyle123740/dsh-zcode-cli-proxy 的衍生版，默认模型清单补上 GLM-5.3。原 zcode2api 网关已移除，需要请用原版 liu5269/zcode2api。",
+  "license": "AGPL-3.0",
+  "author": "kyle123740",
+  "contributors": [
+    "tangyixiao"
+  ],
+  "homepage": "https://github.com/tangyixiao/dsh-zcode-cli-proxy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangyixiao/dsh-zcode-cli-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tangyixiao/dsh-zcode-cli-proxy/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "zcode",
+    "glm",
+    "zai",
+    "proxy",
+    "start-plan"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node test/turn-lock.mjs"
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.1",
+    "@deepseek-ai/schemastery": ">=3.18.1",
+    "@deepseek-ai/dsh-credentials": ">=0.1.5-rc.1",
+    "@deepseek-ai/dsh-llm": ">=0.1.5-rc.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "lib",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ]
+}
