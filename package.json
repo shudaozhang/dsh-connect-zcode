@@ -1,34 +1,37 @@
 {
-  "name": "dsh-zcode-cli-proxy",
-  "version": "0.3.2",
-  "description": "dsh-zcode cli反代：把 DSH 的模型请求经 ZCode 客户端 app-server 转接到 ZCode Start Plan 额度（GLM 系列，真流式、图片输入、会话复用），注册成 DSH 可直接选用的模型提供方。本仓库为 kyle123740/dsh-zcode-cli-proxy 的衍生版，默认模型清单补上 GLM-5.3。原 zcode2api 网关已移除，需要请用原版 liu5269/zcode2api。",
+  "name": "dsh-zcode-plan-bridge",
+  "version": "0.4.0",
+  "description": "Exposes the ZCode CLI's bundled agent as a DeepSeek Harness model provider: streaming, image input, per-session reuse, and a model list read from the CLI instead of hard-coded. Derived from kyle123740/dsh-zcode-cli-proxy.",
   "license": "AGPL-3.0",
   "author": "kyle123740",
   "contributors": [
     "tangyixiao"
   ],
-  "homepage": "https://github.com/tangyixiao/dsh-zcode-cli-proxy#readme",
+  "homepage": "https://github.com/tangyixiao/dsh-zcode-plan-bridge#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tangyixiao/dsh-zcode-cli-proxy.git"
+    "url": "git+https://github.com/tangyixiao/dsh-zcode-plan-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/tangyixiao/dsh-zcode-cli-proxy/issues"
+    "url": "https://github.com/tangyixiao/dsh-zcode-plan-bridge/issues"
   },
   "keywords": [
     "deepseek-harness",
-    "dsh",
     "dsh-plugin",
     "zcode",
     "glm",
     "zai",
-    "proxy",
-    "start-plan"
+    "model-provider"
   ],
   "type": "module",
   "main": "lib/index.js",
+  "bin": {
+    "dsh-zcode-plan-bridge": "bin/dsh-zcode-plan-bridge.js"
+  },
   "scripts": {
-    "test": "node test/turn-lock.mjs"
+    "test": "node --test test/",
+    "typecheck": "tsc -p tsconfig.json",
+    "diagnose": "node bin/dsh-zcode-plan-bridge.js"
   },
   "exports": {
     ".": {
@@ -43,17 +46,29 @@
   },
   "dependencies": {},
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.1",
-    "@deepseek-ai/schemastery": ">=3.18.1",
-    "@deepseek-ai/dsh-credentials": ">=0.1.5-rc.1",
-    "@deepseek-ai/dsh-llm": ">=0.1.5-rc.1"
+    "@deepseek-ai/cordis": ">=4.0.1 <5.0.0 || 4.0.1-rc.1 || 4.0.1-rc.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2",
+    "@deepseek-ai/schemastery": ">=3.18.1 <4.0.0 || 3.18.1-rc.1 || 3.18.1-rc.4 || 3.18.5-alpha.1 || 3.18.5-alpha.2",
+    "@deepseek-ai/dsh-llm": ">=0.1.5 <0.3.0-0 || 0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.5-rc.3 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.1 || 0.2.1-rc.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "files": [
     "lib",
-    "scripts",
+    "bin",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"

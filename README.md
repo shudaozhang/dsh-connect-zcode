@@ -1,49 +1,67 @@
-# dsh-zcode cli反代（dsh-zcode-cli-proxy）
+# dsh-zcode-plan-bridge
 
-把 **DeepSeek Harness（DSH）** 的模型请求转交给 ZCode 客户端自带的 agent 执行的本地插件：
-provider `zcode-cli` 走 GUI 同款的常驻 app-server 会话，插件把 ZCode **Start Plan** 账户注入 agent
-并在每次请求前提供 OAuth 鉴权 —— **直接烧 ZCode Start Plan / Coding Plan 的额度**，
-无需任何 API Key，也不需要自建网关。
+把 **DeepSeek Harness（DSH）** 的模型请求转交给 ZCode CLI 自带的 agent 执行的本地插件。
 
-本仓库：<https://github.com/tangyixiao/dsh-zcode-cli-proxy> ·
+provider `zcode-cli` 背后是一个常驻的 `zcode app-server` 会话（stdio JSON-RPC，真流式）。
+CLI 自己管着登录账号，插件只是把该账号能服务的模型清单原样转述给 DSH ——
+**烧的是 ZCode 账号的额度，不需要 API Key，也不需要自建网关。**
+
+本仓库：<https://github.com/tangyixiao/dsh-zcode-plan-bridge> ·
 上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0）
 
-> **本仓库与上游的差异（v0.3.2）**：默认模型清单补上 **GLM-5.3**（上游 0.3.1 只有 GLM-5.3-Flash）。
-> 上游 `START_PLAN_MODELS` 与 `DEFAULT_CLI_MODELS` 都照抄了 Start Plan 的静态
-> builtinModelIds，而那份静态声明漏了 GLM-5.3 —— 但 Start Plan 权益快照
-> （`ent_2_0817_glm_5p3`，3000000 tokens/日）服务端确实下发它，ZCode GUI 自己就在
-> `account:zai-start-plan` 上跑 GLM-5.3。除这一项外代码与上游一致，通道逻辑、
-> 回合锁自愈、协议逆向结论均来自上游，版权归上游作者。
-> 详见下文「GLM-5.3 为什么不在默认清单里」。
-
-> **原 zcode2api 网关已移除（2026-09-30）**：本插件最初是
-> [liu5269/zcode2api](https://github.com/liu5269/zcode2api)（ZCode 额度 → Anthropic Messages API
-> 网关 + 账号池）的 DSH 集成。网关、账号池工具与一次性 CLI 通道已从本插件删除；
-> 需要那些功能的请直接使用原版 zcode2api。
+> **与上游 0.3.x 的差异（v0.4.0，基于实机逆向重写通道层）**
+>
+> 上游假定「DSH 侧注入 Start Plan 账户 + 硬编码模型清单」，实测在 npm 版 CLI
+> （`zcode-app-cli`）上这两条都错：
+>
+> 1. **CLI 处于 standalone 模式，拒绝宿主注入**。`provider/updateAccountConfig` 直接回
+>    `Error: Standalone Account 由本进程管理，不接收 Host 覆盖`。账号本来就被 CLI 自己管着，
+>    注入既不可能也没必要 —— 已删除。
+> 2. **同时设 `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` 与 `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`
+>    会让 CLI 直接起不来**，stderr 固定为 `Error: Bundled 与 Active ZCode Built-in Release 均不可用`，
+>    而且不服务任何请求。桌面客户端写出的 builtin `revision` 一旦超过当前 CLI 能解的 schema，
+>    就必然踩中。已彻底不再注入任何 `ZCODE_*` 环境变量。
+> 3. **模型清单改为读 CLI 上报**。`session/create` 的 `settings.model.available` 是权威清单；
+>    上游硬编码的 `200000 / 64000 / [FALLBACK_MODELS]` 与实机差 5 倍（真实
+>    `contextWindow=1000000`、`maxOutputTokens=128000`），provider id 也不同。
+> 4. **provider id 不再硬编码**。上游写死 `account:zai-start-plan`，但 standalone 下该 provider
+>    不进入 registry；实机是 `account:zai-individual-coding-plan`。
+>
+> 通道逻辑（回合锁、自愈、事件流、图片物化）沿用上游的逆向结论并补了对应改造，版权归上游作者。
 
 ```
 DSH Agent ──► provider "zcode-cli" ──► ZcodeAppServerAdapter
                                             │  spawn zcode.cjs app-server --stdio（常驻）
-                                            ├─ provider/updateAccountConfig   注入 Start Plan 账户
-                                            ├─ session/setModel               切到 Start Plan
-                                            ├─ session/send                   发回合（真流式）
+                                            ├─ session/create    拿 settings.model.available（模型清单）
+                                            ├─ session/subscribe  desktop-continuous 事件流
+                                            ├─ session/setModel   仅在目标模型与当前不同时切换
+                                            ├─ session/send      发回合（真流式）
                                             └─ interaction/requestProviderRuntimeHeaders  回 OAuth 鉴权
                                                   └──► zcode.z.ai/api/v1/zcode-plan/anthropic
 ```
 
 ## 用法
 
-DSH 设置 → 模型（Models）→ 提供方 **ZCode Start Plan（客户端反代）** → 模型
-`GLM-5.3-Flash (ZCode CLI)` 或 `GLM-5.3 (ZCode CLI)`。
-选中后 DSH 的模型请求会交给常驻的 ZCode app-server 执行，**烧的是你 ZCode 账号的 Start Plan 额度**
-（执行渠道实测为 `account:zai-start-plan/GLM-5.3-Flash @ https://zcode.z.ai/api/v1/zcode-plan/anthropic`；
-GLM-5.3 走同一个 provider，`modelId` 换成 `GLM-5.3`）。
+1. 装一份 ZCode CLI（`npm i -g zcode-app-cli`，或桌面客户端自带的 `zcode.cjs`），并登录有额度的账号。
+2. 把本插件装进 DSH profile，重启 DSH。
+3. DSH 设置 → 模型（Models）→ 提供方 **ZCode CLI (account bridge)** → 选模型。
+
+可用模型**不是插件写死的**，而是 CLI 当前账号能服务的那批。本机实测（2026-10-22）：
+
+| provider | model | context | max output | image |
+|---|---|---|---|---|
+| `account:zai-individual-coding-plan` | GLM-5.3 | 1000000 | 128000 | ✓ |
+| `account:zai-individual-coding-plan` | GLM-5.3-Flash | 1000000 | 128000 | ✓ |
+| `ccc6dfb9-…`（个人 deepseek） | deepseek-v4-flash | 1000000 | 384000 | ✓ |
+
+同一 model id 出现在多个 provider 上时（如上表 GLM-5.3 同时在 `account:` 与 `zai-api` 上），
+插件**优先 `account:` 开头的路由** —— 那条烧计划额度，`zai-api` 那条按 API Key 计费。
+想指定确切路由，就在 `cliModels` 里给条目写 `id: "zai-api/GLM-5.3"`（`providerId/modelId` 形式）。
 
 - 真流式（text/reasoning delta 直接转发）、工具调用、图片输入（图片以本地文件随消息附上，agent 用 Read 读图）
 - 多轮会话按 DSH 的 sessionId 复用 app-server 会话
 - 会话标题这类辅助调用在本地生成，不消耗额度
-- 前置条件：本机装着 ZCode 客户端（自动探测 `%LOCALAPPDATA%\Programs\ZCode\resources\glm\zcode.cjs`），
-  且客户端已登录拥有 Start Plan 额度的账号
+- 前置条件：本机能跑起 ZCode CLI，且它已登录有额度的账号
 
 ## 安全须知（装之前必读）
 
@@ -58,134 +76,121 @@ GLM-5.3 走同一个 provider，`modelId` 换成 `GLM-5.3`）。
   DSH 宿主的全部 env；确有需要可用配置项 `childEnvAllow` 追加变量名。
 - 鉴权 token（`zcodejwttoken`）只经本机 stdio JSON-RPC 交给 agent 进程，不发往任何第三方。
 
-## 通道原理（2026-09-30 逆向打通，全部实测）
+## 通道原理（全部实机逆向验证）
 
-1. spawn `zcode app-server` 时按 GUI 同款设置 `ZCODE_APP_VERSION` / `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` /
-   `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE` / `ZCODE_BASE_URL`（否则 CLI 落在 0.0.0-dev 目录，注入对不上）；
-2. `provider/updateAccountConfig` 注入 `account:zai-start-plan`（entitled）。**关键坑**：
-   `basedOnZCodeBuiltinRevision` 必须逐字符等于 configSource 的
-   `zcode-builtin:<revision>:<sha256(activeFilePath)>`，否则 registry 合并循环**静默跳过**（不报错）；
-3. `session/setModel`（0.16.9 起要求对象式 `{providerId, modelId, options:{reasoningLevel}}`，level 必填，GUI 用 max）；
-4. agent 发模型请求前回调 `interaction/requestProviderRuntimeHeaders` 要鉴权 —— 回共享凭证里的
-   **`zcodejwttoken`**（`oauth:zai:access_token` 已过期，回它上游 401）。agent 自己算 coding-plan 请求签名，能过 WAF；
-5. `session/event` 的事件类型在 **params.type 顶层**（不是 payload.type），`turn.failed` 也要处理，
-   `replayState` 里不能有 `undefined` 字段（lossless JSON 校验会炸）。
+1. spawn `zcode app-server --surface terminal --no-color` 时**不注入任何 `ZCODE_*`**。
+   实测三种环境（零变量 / 只 `ZCODE_SERVICE_AUTHORITY_MODE` / 再加 `ZCODE_BASE_URL`）
+   产出的模型清单**完全相同**；而注入 builtin/personal 文件路径会引入上面说的启动失败。
+2. `session/create` 的返回里 `settings.model.available` 是模型清单，`session.model` 是当前模型。
+   条目形状：`{ref:{providerId,modelId}, label, providerLabel, contextWindow, maxOutputTokens,
+   reasoning:{levels:[{value}],defaultLevel}, properties:{inputFormat:{supportsImage}}}` ——
+   **没有** `inputModalities` 字段，图片能力要看 `properties.inputFormat.supportsImage`。
+3. `session/subscribe` 用 `{deliveryKind:'desktop-continuous', afterSeq:0, includeSnapshot:true}`。
+4. `session/setModel` 要求对象式 `{providerId, modelId, options:{reasoningLevel}}`；
+   `reasoningLevel` 取自条目上报的档位（本机是 low/high/max，默认 max）。
+5. agent 发模型请求前回调 `interaction/requestProviderRuntimeHeaders` 要鉴权 —— 回共享凭证里的
+   **`zcodejwttoken`**（`oauth:zai:access_token` 已过期，回它上游 401）。agent 自己算签名，能过 WAF。
+6. `session/event` 的事件类型在 **params.type 顶层**（不是 payload.type），`turn.failed` 也要处理
+   （错误码在 `payload.error.attribution.providerErrorCode`），`replayState` 里不能有 `undefined`
+   字段（lossless JSON 校验会炸）。
+7. 服务端请求必须应答，否则 `session/create` 挂起：`session/requestRuntimePreferences` 回
+   `{nativeSearchEnhancementsEnabled:false, memoryEnabled:false,
+   askUserQuestionAutoResolutionEnabled:true, modelContextBudgetStrategy:'preflight-v1'}` 就够。
 
-> HTTP 直连计划端点会被阿里云无痕验证拦（3007/3012）——只有 agent 二进制自己发的签名请求能过，
+> HTTP 直连计划端点会被无痕验证拦 —— 只有 agent 二进制自己发的签名请求能过，
 > 所以「反代」的形态是托管 agent 进程而不是自建 HTTP 网关。
 
 ## 回合锁与自愈
 
 app-server **一个会话同时只允许一个在途回合**。上一轮被中止 / 超时 / 静默丢弃时它不会自己释放，
-下一轮 `session/send` 就被拒成 `A prompt is already running for this session`（DSH 里显示成
-「本轮运行失败 · PROVIDER」，因为文案是逐字透传上游的 JSON-RPC 错误）。通道层做六件事兜底：
+下一轮 `session/send` 就被拒成 `A prompt is already running for this session`。通道层做六件事兜底：
 
 1. **补发 `session/stop`**：本轮只要没正常结束（超时 / 被中止 / 发送失败 / `turn.failed`），
    生成器 `finally` 一定补一刀，不把锁留给下一轮；
 2. **撞锁自愈**：`send` 被回「already running」→ 补 stop → 等 1.5s → 原会话重试一次；
    被回「session … not found」（会话被回收 / 进程重启）→ 丢弃缓存条目、新建会话，
    `firstTurn` 语义自动重放整段对话，历史不丢；
-3. **回合串行化**：同一 DSH 会话的两轮排队跑（最多等 60s，超时放行交给 2 处理），
-   并发请求不再直接撞错；
+3. **回合串行化**：同一 DSH 会话的两轮排队跑（最多等 60s，超时放行交给 2 处理）；
 4. **进程退出即作废 + 快败**：app-server 子进程退出（含 spawn 失败）时清空会话映射，
-   避免下一轮拿悬空 sessionId 去发；**在途的流会立刻收到一个回合失败收尾**，
-   不用干等回合超时（默认 15 分钟）；spawn 的 `error` 事件也接住了，不会打挂宿主。
+   **在途的流会立刻收到一个回合失败收尾**，不用干等回合超时；
 5. **会话分叉检测**：每轮 send 都记录当时的消息列表指纹；下一轮续接前先比对前缀，
-   DSH 侧编辑 / 回退过历史就重建会话、按首轮语义重放新分支，避免模型看着旧历史答新问题。
-6. **模型映射**：DSH 选中的模型 id 经 `cliModels[].startPlanModelId` 映射到真实的
-   Start Plan 执行模型；同一会话中途换模型时在原会话上重发 `session/setModel`。
-回归验证（不需要真 ZCode 客户端与额度，跑的是假 app-server）：
+   DSH 侧编辑 / 回退过历史就重建会话、按首轮语义重放新分支；
+6. **模型映射**：DSH 选的模型 id 经 catalogue 解析成 `{providerId, modelId}`；
+   同一会话中途换模型时在原会话上重发 `session/setModel`，解析不出来就保留会话默认模型并记 warn。
+
+## 诊断命令
+
+插件带一个不依赖 DSH 宿主的诊断入口（只用 Node 内置模块，**插件因版本不兼容加载失败时也能用**）：
 
 ```
-node test\turn-lock.mjs        # 撞锁自愈 / 串行化 / 中止补刀 / 重启作废 / 会话失效重放 / 退出快败 / 分叉重建
+node bin/dsh-zcode-plan-bridge.js              # 列出子命令
+node bin/dsh-zcode-plan-bridge.js doctor       # 本地前置条件体检（离线，不耗额度）
+node bin/dsh-zcode-plan-bridge.js models       # 打印 CLI 上报的完整模型清单
+node bin/dsh-zcode-plan-bridge.js protocol     # 起 app-server 走一遍握手，验证协议没变
+node bin/dsh-zcode-plan-bridge.js turn "hi"    # 真发一个回合（消耗额度）
+node bin/dsh-zcode-plan-bridge.js image <file> # 发一张图（消耗额度）
 ```
+
+通用参数：`--cli-path <zcode.cjs>`、`--data-dir <~/.zcode 的上级>`、`--model <id>`、`--json`。
+
+`doctor` 会检查 node 版本、CLI 定位、builtin release（**只读检查，不喂给 CLI**）、
+凭证（只打印长度与是否 JWT，绝不打印 token 本体）、以及 CLI 上报的模型清单。
+
+> 这六个子命令取代了上游 `scripts/probe-*.cjs` 那十个一次性脚本。那些脚本各自硬编码了作者
+> 本机路径、改一次才能问另一个问题，已删除。
 
 ## 配置（设置 → 插件）
 
 | 字段 | 默认 | 说明 |
 |------|------|------|
 | `enabled` | `true` | 总开关 |
-| `zcodeCliPath` | 自动探测 | ZCode 客户端自带的 zcode.cjs 路径 |
+| `zcodeCliPath` | 自动探测 | `zcode.cjs` 路径；空 = 从 `ZCODE_CLI_PATH`、桌面客户端常见安装位置、`zcode-app-cli` 全局包依次探测 |
 | `zcodeCliNode` | `node` | 运行 zcode.cjs 的 node 可执行文件 |
-| `cliModels` | `glm-5.3-flash` + `glm-5.3` | provider `zcode-cli` 暴露给 DSH 的模型清单；`startPlanModelId` 字段把条目映射到真实的 Start Plan 执行模型（缺省 `GLM-5.3-Flash`）。**只想保留 Flash 一条就把这个数组覆盖成单条目** |
-| `cliCwd` | 空 | app-server 会话的工作目录；留空 = 用户主目录 |
-| `injectStartPlanAccount` | `true` | 把 Start Plan 账户注入 agent（GUI 同款） |
-| `zcodeDataBaseDir` | 空 | ZCode 共享凭证目录（读 `zcodejwttoken`）；留空 = 用户主目录 |
-| `childEnvAllow` | `[]` | 额外透传给 app-server 子进程的环境变量名（默认只透传系统基础变量、`ZCODE_*` 与 `NODE_EXTRA_CA_CERTS`） |
-| `appServerTimeoutMs` | `120000` | app-server 单次请求超时（毫秒） |
-| `zcodeCliTimeoutMs` | `900000` | app-server 单回合超时（毫秒） |
+| `cliModels` | `[]` | **留空 = 跟随 CLI 上报的清单**（推荐）。填了就等于把清单钉死成这份，只用 `cliModelId` 决定 CLI 侧路由 |
+| `cliCwd` | 空 | app-server 会话的工作目录；空 = 用户主目录 |
+| `zcodeDataBaseDir` | 空 | ZCode 数据根目录；空 = 用户主目录（即 `~/.zcode/v2`） |
+| `childEnvAllow` | `[]` | 额外透传给子进程的环境变量名 |
+| `appServerTimeoutMs` | `120000` | 单次 JSON-RPC 请求超时（毫秒） |
+| `zcodeCliTimeoutMs` | `900000` | 单回合超时（毫秒） |
+| `maxTokens` | `128000` | 仅作兜底：CLI 未上报 `maxOutputTokens` 时使用 |
+| `defaultContextWindow` | `1000000` | 仅作兜底：CLI 未上报 `contextWindow` 时使用 |
 
-## 开发：改了代码怎么生效
+## 开发
 
-**桌面版**（`C:\Users\zy\.dsh\profiles\desktop`，bundle 以 `link:` 挂载）：
-没有热重载，改完 `lib\*.js` 后**重启 DeepSeek Harness** 即生效。
-
-**网页版 / file:// 装配**：DSH 的 loader 只在**行 name 变化**时重新 import 插件模块，
-而 Node ESM 以完整 URL（含查询串）为缓存键。仓库里的 `cordis.patch.yml` 写的是包名
-`dsh-zcode-cli-proxy`（npm / link: 装配的正确形态）；本地目录式开发装配时把它换成
-file:// URL 加 `?v=N`：
-
-```yaml
-# cordis.patch.yml（仅本地开发，勿提交）
-- insert:
-    - id: dsh-zcode-cli-proxy
-      name: 'file:///E:/ai/dsh/plugins/dsh-zcode-cli-proxy/lib/index.js?v=N'
+```bash
+npm test           # 纯函数单测（不 spawn CLI、不耗额度）
+npm run typecheck  # tsc --checkJs 全量类型校验（零构建，装进 profile 免编译）
+npm run diagnose   # 诊断命令入口
 ```
 
-改完 `lib\*.js` 后：把 `?v=N` 递增，然后在插件管理里对 bundle
-**禁用 → 启用**（或重启 DSH），新代码即生效。
-（重启 DSH 永远有效；忘记 bump 版本号则只会重跑旧代码。）
+**改了代码怎么生效**：DSH 的 loader 只在**行 name 变化**时重新 import 插件模块，
+而 Node ESM 以完整 URL（含查询串）为缓存键。仓库里的 `cordis.patch.yml` 写的是包名
+（npm / link: 装配的正确形态）；本地目录式开发装配时把它换成 file:// URL 加 `?v=N`：
+
+```yaml
+- insert:
+    - id: dsh-zcode-plan-bridge
+      name: 'file:///D:/path/to/dsh-zcode-plan-bridge/lib/index.js?v=N'
+```
+
+改完 `lib/*.js` 后把 `?v=N` 递增，然后在插件管理里对 bundle **禁用 → 启用**（或重启 DSH）。
 
 ## 目录结构
 
 ```
-lib/index.js        插件装配：Config schema、provider 注册
-lib/app-server.js   app-server 通道：JSON-RPC 客户端 + LlmAdapter（Start Plan 注入/鉴权/事件流）
-lib/messages.js     共用消息工具：图片落盘、对话拍平
-lib/credentials.js  解密 ~/.zcode/v2/credentials.json，取 Start Plan token
-scripts/            Start Plan 通道的逆向探测脚本（probe-*.cjs）
-test/               app-server 通道与凭证解密的验证脚本
-                    turn-lock.mjs + fake-app-server.cjs：回合锁自愈的回归测试
+lib/index.js        插件装配：Config schema、provider 注册、模型清单来源决策
+lib/app-server.js   app-server 通道：JSON-RPC 客户端 + LlmAdapter（事件流/回合锁/鉴权）
+lib/zcode-runtime.js CLI 发现、catalogue 归一化与路由选择（只用 Node 内置模块）
+lib/messages.js     消息工具：图片物化、对话拍平、泄漏工具调用清洗
+lib/credentials.js  解密 ~/.zcode/v2/credentials.json
+lib/diagnostics.js  六个诊断子命令（doctor/models/protocol/turn/image）
+bin/                可执行入口
+test/               纯函数单测（node --test）
 ```
-
-## GLM-5.3 为什么不在上游默认清单里
-
-上游 0.3.1 只暴露 `GLM-5.3-Flash`，因为 Start Plan 的模型清单在两处都是照抄 ZCode 自带的静态声明：
-
-- `lib/app-server.js` 的 `START_PLAN_MODELS`（注入 `builtinModelIds` 用）
-- `lib/index.js` 的 `DEFAULT_CLI_MODELS`（DSH 模型列表用）
-
-而 `~/.zcode/v2/runtime/provider/…/zcode-builtin.json` 里 `account:zai-start-plan` 的
-静态 `builtinModelIds` 只有 `["GLM-5.3-Flash","GLM-5.2","GLM-5-Turbo"]` —— **GLM-5.3 缺席**。
-GLM-5.3 在静态声明里只属于 coding-plan 渠道。
-
-但那是**静态声明**，不是**服务端权益**。ZCode 客户端日志里的 Start Plan 权益快照显示：
-
-```
-plan          zcode-v3-start-plan-0817「ZCode Start Plan」 status=active
-entitlements  ent_2_0817_glm_5p3  show_name=GLM-5.3
-              capabilities=["model:glm-5.3"]  grant_units=3000000  period=daily
-              ent_2_0817_glm_5p3f GLM-5.3-Flash 5000000/日
-```
-
-也就是说 Start Plan 账号**每天有 3000000 tokens 的 GLM-5.3 额度**，且 ZCode GUI 自己就在
-`account:zai-start-plan` 上跑 GLM-5.3（日志 `provider/model 就绪 … {"modelId":"GLM-5.3",
-"providerId":"account:zai-start-plan"}`）。实测确认：
-
-- `setModel {providerId:"account:zai-start-plan", modelId:"GLM-5.3"}` 返回 ok，回合正常完成；
-- ZCode CLI 的 rollout 日志 `model-io-*.jsonl` 记录 `modelId: GLM-5.3, providerId: account:zai-start-plan`；
-- 权益账本里 `ent_2_0817_glm_5p3` 的 `used_units` 从 0 涨到 28355，正是那次探针的 token 数。
-
-所以本仓库把 `START_PLAN_MODELS` 与 `DEFAULT_CLI_MODELS` 都补上 `GLM-5.3`。 injections
-`builtinModelIds` 比静态声明多这一项不会破坏 registry 合并（合并是叠加，不是替换），
-反而让 `setModel GLM-5.3` 不再被降级。
-
-> 你的账号若确实没有 GLM-5.3 权益（例如 Start Plan 已过期），setModel 会失败并降级到
-> 会话默认模型，插件记 warn；把 `cliModels` 覆盖成只有 `glm-5.3-flash` 一条即可。
 
 ## 许可
 
 AGPL-3.0。本仓库是 [kyle123740/dsh-zcode-cli-proxy](https://github.com/kyle123740/dsh-zcode-cli-proxy)
-的衍生版，仅默认模型清单补了 GLM-5.3；app-server 通道实现独立于上游，仅将
-[liu5269/zcode2api](https://github.com/liu5269/zcode2api) 作为历史来源致谢；
-上游代码已不再随本仓库分发，其本身遵循 AGPL-3.0，仅限学习、研究、个人实验用途。
+的衍生版：app-server 通道的逆向结论（回合锁、事件流、鉴权回调）源自上游，
+v0.4.0 依实机重新验证并改写了账号/模型层。历史来源致谢
+[liu5269/zcode2api](https://github.com/liu5269/zcode2api)，其代码已不再随本仓库分发。
