@@ -9,7 +9,7 @@ CLI 自己管着登录账号，插件只是把该账号能服务的模型清单�
 本仓库：<https://github.com/tangyixiao/dsh-zcode-plan-bridge> ·
 上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0）
 
-> **与上游 0.3.x 的差异（v0.4.0，基于实机逆向重写通道层）**
+> **与上游 0.3.x 的差异（v0.4.x，基于实机逆向重写通道层）**
 >
 > 上游假定「DSH 侧注入 Start Plan 账户 + 硬编码模型清单」，实测在 npm 版 CLI
 > （`zcode-app-cli`）上这两条都错：
@@ -193,5 +193,5 @@ test/               纯函数单测（node --test）
 
 AGPL-3.0。本仓库是 [kyle123740/dsh-zcode-cli-proxy](https://github.com/kyle123740/dsh-zcode-cli-proxy)
 的衍生版：app-server 通道的逆向结论（回合锁、事件流、鉴权回调）源自上游，
-v0.4.0 依实机重新验证并改写了账号/模型层。历史来源致谢
+v0.4.x 依实机重新验证并改写了账号/模型层。历史来源致谢
 [liu5269/zcode2api](https://github.com/liu5269/zcode2api)，其代码已不再随本仓库分发。
