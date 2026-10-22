@@ -29,7 +29,7 @@
     "dsh-zcode-plan-bridge": "bin/dsh-zcode-plan-bridge.js"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "typecheck": "tsc -p tsconfig.json",
     "diagnose": "node bin/dsh-zcode-plan-bridge.js"
   },

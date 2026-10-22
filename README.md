@@ -65,13 +65,13 @@ DSH Agent ──► provider "zcode-cli" ──► ZcodeAppServerAdapter
 
 ## 安全须知（装之前必读）
 
-这个「模型提供方」的真身是一个**以你当前用户权限运行、且带全套工具执行能力的 agent**：
+这个「模型提供方」的真身是一个**以你当前用户权限运行、且带全套工具执行能力的 agent**。它不在 DSH 的工具权限边界内运行：DSH 的权限模式和浏览器审批界面只处理 DSH Host 自己发起的工具调用，不能确认 ZCode app-server 发起的授权请求；本插件也没有自己的交互式确认窗口。
 
-- 插件建会话时把权限模式切到 `yolo`，并对 agent 的每一次 `interaction/requestPermission`
-  自动回 `allow` —— agent 执行 Bash、读写文件、联网等操作**不会弹任何确认**。
-- agent 的输入是 DSH 拍平后的整段对话（含网页抓取、工具结果等外部内容）。这些内容里若被
-  塞入注入指令，agent 可能据此执行命令 —— 请只在可信场景使用，不要把不可信网页内容喂进
-  挂着本插件的会话。
+- 两种策略都会将会话设为 ZCode 的 `build` 权限模式，确保授权请求经过插件处理；模式设置失败时本轮停止。该策略不构成操作系统沙箱，也不阻止无需额外授权的 agent 操作。
+- 默认 `authorizationPolicy: deny`：插件对 `interaction/requestPermission` 回复 `deny`，不会弹确认框；需要授权的工具调用会失败。
+- 只有显式设置 `authorizationPolicy: allow-all` 才会自动批准已知的 `interaction/requestPermission` 请求。该设置允许 agent 以当前用户权限执行 Bash、文件读写和联网操作，不要在不可信任务中启用。
+- 名称包含 `approval` 或 `permission` 的未知 app-server 请求始终拒绝，即使启用了全自动模式；如果 ZCode 将来改变权限协议，相关调用会失败关闭。
+- agent 的输入是 DSH 拍平后的整段对话（包括网页抓取、工具结果等外部内容）。提示注入仍可能诱导全自动模式执行恶意操作；默认拒绝减少了授权面，但不能消除未经过授权请求的副作用。
 - 子进程环境变量按白名单透传（系统基础变量、`ZCODE_*`、`NODE_EXTRA_CA_CERTS`），不继承
   DSH 宿主的全部 env；确有需要可用配置项 `childEnvAllow` 追加变量名。
 - 鉴权 token（`zcodejwttoken`）只经本机 stdio JSON-RPC 交给 agent 进程，不发往任何第三方。
@@ -147,6 +147,7 @@ node bin/dsh-zcode-plan-bridge.js image <file> # 发一张图（消耗额度）
 | `zcodeCliPath` | 自动探测 | `zcode.cjs` 路径；空 = 从 `ZCODE_CLI_PATH`、桌面客户端常见安装位置、`zcode-app-cli` 全局包依次探测 |
 | `zcodeCliNode` | `node` | 运行 zcode.cjs 的 node 可执行文件 |
 | `cliModels` | `[]` | **留空 = 跟随 CLI 上报的清单**（推荐）。填了就等于把清单钉死成这份，只用 `cliModelId` 决定 CLI 侧路由 |
+| `authorizationPolicy` | `deny` | `deny` 会拒绝 ZCode 的权限请求且不提供交互确认；只有你明确接受无人值守工具执行时才设为 `allow-all`。未知 permission/approval 方法始终拒绝 |
 | `cliCwd` | 空 | app-server 会话的工作目录；空 = 用户主目录 |
 | `zcodeDataBaseDir` | 空 | ZCode 数据根目录；空 = 用户主目录（即 `~/.zcode/v2`） |
 | `childEnvAllow` | `[]` | 额外透传给子进程的环境变量名 |
