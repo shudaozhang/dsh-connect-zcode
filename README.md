@@ -131,12 +131,18 @@ node bin/dsh-zcode-plan-bridge.js turn "hi"    # 真发一个回合（消耗额�
 node bin/dsh-zcode-plan-bridge.js image <file> # 发一张图（消耗额度）
 ```
 
-通用参数：`--cli-path <zcode.cjs>`、`--data-dir <~/.zcode 的上级>`、`--model <id>`、`--json`。
+通用参数：`--cli-path <zcode.cjs>`、`--data-dir <~/.zcode 的上级>`、`--model <id>`、`--json`、
+`--allow-tools`。
+
+`--allow-tools` 默认**关闭**，和插件本身的 `authorizationPolicy: deny` 一致。诊断命令会真的用你的
+账号起一个 app-server agent，所以不带这个 flag 时，探针会对 agent 的工具权限请求回 `deny`：
+`turn` / `image` 能验证通道和用量，但 agent 跑不了 Bash、写不了文件、上不了网。确实需要让探针
+执行工具时再显式加上它。名称含 `approval`/`permission` 的未知请求两种情况下都拒绝。
 
 `doctor` 会检查 node 版本、CLI 定位、builtin release（**只读检查，不喂给 CLI**）、
 凭证（只打印长度与是否 JWT，绝不打印 token 本体）、以及 CLI 上报的模型清单。
 
-> 这六个子命令取代了上游 `scripts/probe-*.cjs` 那十个一次性脚本。那些脚本各自硬编码了作者
+> 这五个子命令取代了上游 `scripts/probe-*.cjs` 那十个一次性脚本。那些脚本各自硬编码了作者
 > 本机路径、改一次才能问另一个问题，已删除。
 
 ## 配置（设置 → 插件）
@@ -184,7 +190,7 @@ lib/app-server.js   app-server 通道：JSON-RPC 客户端 + LlmAdapter（事件
 lib/zcode-runtime.js CLI 发现、catalogue 归一化与路由选择（只用 Node 内置模块）
 lib/messages.js     消息工具：图片物化、对话拍平、泄漏工具调用清洗
 lib/credentials.js  解密 ~/.zcode/v2/credentials.json
-lib/diagnostics.js  六个诊断子命令（doctor/models/protocol/turn/image）
+lib/diagnostics.js  五个诊断子命令（doctor/models/protocol/turn/image）
 bin/                可执行入口
 test/               纯函数单测（node --test）
 ```
