@@ -70,13 +70,27 @@ function loadBundle(modules) {
  * A `configForms` service that copies the two measured Host behaviours exactly.
  *
  * @param {string[]} served - namespaces the describe mirror answers with.
+ * @param {Record<string, any>} [documents] - explicit config document per namespace; a
+ *   namespace without one gets a small default document. The document object is held by
+ *   reference on purpose: a write mutates it, which is how the fake mirrors the Host
+ *   answering with the new value.
  * @returns {any} the service.
  */
-function fakeConfigForms(served) {
+function fakeConfigForms(served, documents = {}) {
   /** @type {Map<string, any>} */
   const forms = new Map()
   const listeners = new Set()
-  let snapshot = { status: 'ready', view: { writable: true, namespaces: served.map((ns) => ({ ns, revision: 1, value: { enabledModelIds: ['GLM-5.3'], disabledModelIds: [] } })) } }
+  const snapshot = {
+    status: 'ready',
+    view: {
+      writable: true,
+      namespaces: served.map((ns) => ({
+        ns,
+        revision: 1,
+        value: documents[ns] ?? { enabledModelIds: ['GLM-5.3'], disabledModelIds: [] },
+      })),
+    },
+  }
 
   const makeForm = (entryId) => {
     const storeListeners = new Set()
@@ -99,8 +113,33 @@ function fakeConfigForms(served) {
         storeListeners.add(listener)
         return () => storeListeners.delete(listener)
       },
-      mutate: async () => true,
-      set: async () => true,
+      /**
+       * Apply ops to the live document and republish, like the real controller's
+       * `mirror.acceptView(response.value)` does after the Host accepts a write.
+       *
+       * @param {any[]} ops - ordered settings operations.
+       * @returns {Promise<boolean>} whether the Host accepted them.
+       */
+      mutate: async (ops) => {
+        const view = snapshot.view.namespaces.find((candidate) => candidate.ns === entryId)
+        if (view === undefined) return false
+        for (const op of ops) {
+          if (op.op === 'set') view.value[op.path[0]] = structuredClone(op.value)
+        }
+        view.revision += 1
+        derive()
+        for (const listener of [...listeners]) listener()
+        return true
+      },
+      set: async (field, next) => {
+        const view = snapshot.view.namespaces.find((candidate) => candidate.ns === entryId)
+        if (view === undefined) return false
+        view.value[field] = structuredClone(next)
+        view.revision += 1
+        derive()
+        for (const listener of [...listeners]) listener()
+        return true
+      },
       namespace: entryId,
     }
   }
@@ -215,4 +254,166 @@ test('a host that never serves this plugin reports unavailable with the served l
   const snapshot = directory.getSnapshot()
   assert.equal(snapshot.bound, false, 'must not claim a binding it does not have')
   assert.deepEqual(snapshot.served, ['llm-pi-ai', 'llm-deepseek'], 'must expose the served list for the banner')
+})
+
+// ── switch semantics ─────────────────────────────────────────────────────────
+//
+// The card must read switch state from THIS PLUGIN'S CONFIG, not from catalogue
+// membership. The Host filters the advertised catalogue through `selectEnabledModels`, so
+// a switched-off model simply disappears from it: deriving `on` from "is it in the
+// catalogue?" made the switch flip back as soon as the (filtered) refresh landed, and made
+// a deliberately disabled model look like one that went missing.
+
+/**
+ * A model catalogue that behaves like the Host's: filtered by the config it is given.
+ *
+ * @param {() => any} readValue - reads the current config document.
+ * @param {ReadonlyArray<{ id: string, name: string }>} all - every model upstream reports.
+ * @param {any} [staleBy] - when set, the catalogue keeps answering with the document as it
+ *   was when this snapshot was taken, which is what a read already in flight (or one
+ *   answered before the write committed) looks like.
+ * @returns {any} the `remote.session` surface the directory talks to.
+ */
+function filteredCatalogueRemote(readValue, all, staleBy) {
+  const visible = () => {
+    const value = (staleBy ?? readValue()) ?? {}
+    const disabled = Array.isArray(value.disabledModelIds) ? value.disabledModelIds : []
+    const allow = Array.isArray(value.enabledModelIds) ? value.enabledModelIds : []
+    return all.filter((model) => {
+      if (disabled.includes(model.id)) return false
+      if (allow.length === 0) return true
+      return allow.includes(model.id)
+    })
+  }
+  return {
+    session: {
+      modelCatalog: async () => ({ ok: true, value: { groups: [{ id: 'zcode-cli', models: visible() }] } }),
+    },
+  }
+}
+
+/**
+ * Build a context whose config document is a live, mutable object.
+ *
+ * @param {any} configForms - the fake settings service.
+ * @param {any} remote - the `remote.session` surface.
+ * @returns {any} `{ ctx, slots }`.
+ */
+function makeTogglingContext(configForms, remote) {
+  /** @type {any[]} */
+  const slots = []
+  const ctx = {
+    effect: (fn) => {
+      const disposer = fn()
+      return typeof disposer === 'function' ? disposer : () => {}
+    },
+    get: (name) => {
+      if (name === 'configForms') return configForms
+      if (name === 'remote.session') return remote.session
+      if (name === 'remote') return remote
+      return undefined
+    },
+    locale: { register: () => () => {}, bind: () => (key) => key },
+    slots: {
+      inject: (name, register) => {
+        register()
+        return () => {}
+      },
+      register: (options) => {
+        slots.push({ options })
+        return () => {}
+      },
+    },
+  }
+  return { ctx, slots }
+}
+
+/** Let the first catalogue read settle. @returns {Promise<void>} */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+test('a switch reads off the config, so a filtered catalogue cannot flip it back', async () => {
+  const document = { enabledModelIds: [], disabledModelIds: [] }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }, { id: 'GLM-5.2', name: 'GLM-5.2' }]
+  const remote = filteredCatalogueRemote(() => document, all)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  assert.deepEqual(
+    directory.getSnapshot().rows.map((row) => [row.id, row.on]),
+    [['GLM-5.2', true], ['GLM-5.3', true]],
+    'everything is on by default',
+  )
+
+  await directory.setModel('GLM-5.3', false)
+  const afterOff = directory.getSnapshot().rows
+  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'off lands as a disabledModelIds entry')
+  // GLM-5.3 leaves the (filtered) catalogue but must still render, switched OFF.
+  const off = afterOff.find((row) => row.id === 'GLM-5.3')
+  assert.ok(off !== undefined, 'a disabled model must stay listed so it can be re-enabled')
+  assert.equal(off.on, false, 'the switch must read the config, not catalogue membership')
+  assert.equal(off.reported, true, 'a deliberately disabled model is not "not reported"')
+
+  await directory.setModel('GLM-5.3', true)
+  assert.deepEqual(document.disabledModelIds, [], 'on clears the disable entry')
+  assert.equal(directory.getSnapshot().rows.find((row) => row.id === 'GLM-5.3').on, true)
+})
+
+test('every switch writes the served namespace', async () => {
+  const document = { enabledModelIds: [], disabledModelIds: [] }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const originalGet = configForms.get
+  /** @type {string[]} */
+  const namespacesWritten = []
+  configForms.get = (id) => {
+    const form = originalGet(id)
+    const mutate = form.mutate
+    form.mutate = async (ops) => {
+      namespacesWritten.push(form.namespace)
+      return await mutate(ops)
+    }
+    return form
+  }
+  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }]
+  const remote = filteredCatalogueRemote(() => document, all)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  await directory.setModel('GLM-5.3', false)
+  assert.deepEqual(namespacesWritten, ['include:dsh-connect-zcode'],
+    'writes must name the namespace the Host serves')
+  assert.equal(directory.getSnapshot().writeError, null)
+})
+
+test('a stale catalogue read cannot flip a switch back', async () => {
+  // THE RACE. The Host re-reads the catalogue after a write, and that read is filtered by
+  // the config as it stood when the read STARTED. Deriving `on` from catalogue membership
+  // therefore showed the pre-write state for one refresh -- the switch appeared to bounce
+  // back. `on` must come from the config document.
+  const document = { enabledModelIds: [], disabledModelIds: [] }
+  // Freeze the catalogue at the all-enabled state: every read answers as if nothing was
+  // ever disabled, which is the worst case for a catalogue-derived `on`.
+  const frozen = { enabledModelIds: [], disabledModelIds: [] }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }]
+  const remote = filteredCatalogueRemote(() => document, all, frozen)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  await directory.setModel('GLM-5.3', false)
+
+  // The write landed...
+  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'off must persist')
+  // ...and the switch must reflect it even though the catalogue still advertises the model.
+  const row = directory.getSnapshot().rows.find((candidate) => candidate.id === 'GLM-5.3')
+  assert.equal(row.on, false, 'a stale catalogue must not resurrect a disabled model')
 })
