@@ -349,8 +349,17 @@ test('a switch reads off the config, so a filtered catalogue cannot flip it back
   )
 
   await directory.setModel('GLM-5.3', false)
+  // A click only edits the draft: no write, no catalogue re-read, so the list cannot grey
+  // out under the pointer. This is the reported "勾选后列表短暂变灰" symptom.
+  assert.deepEqual(document.disabledModelIds, [], 'a switch must NOT write before Save')
+  assert.equal(directory.getSnapshot().dirty, true, 'the panel must announce unsaved changes')
+  const drafted = directory.getSnapshot().rows.find((row) => row.id === 'GLM-5.3')
+  assert.equal(drafted.on, false, 'the draft must be what the switch draws')
+
+  await directory.save()
   const afterOff = directory.getSnapshot().rows
-  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'off lands as a disabledModelIds entry')
+  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'save lands it as a disabledModelIds entry')
+  assert.equal(directory.getSnapshot().dirty, false, 'a successful save clears the draft')
   // GLM-5.3 leaves the (filtered) catalogue but must still render, switched OFF.
   const off = afterOff.find((row) => row.id === 'GLM-5.3')
   assert.ok(off !== undefined, 'a disabled model must stay listed so it can be re-enabled')
@@ -358,11 +367,15 @@ test('a switch reads off the config, so a filtered catalogue cannot flip it back
   assert.equal(off.reported, true, 'a deliberately disabled model is not "not reported"')
 
   await directory.setModel('GLM-5.3', true)
-  assert.deepEqual(document.disabledModelIds, [], 'on clears the disable entry')
+  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'still nothing written before Save')
+  await directory.save()
+  assert.deepEqual(document.disabledModelIds, [], 'save clears the disable entry')
   assert.equal(directory.getSnapshot().rows.find((row) => row.id === 'GLM-5.3').on, true)
 })
 
-test('every switch writes the served namespace', async () => {
+test('Save is a single write and one catalogue re-read', async () => {
+  // The pointed complaint was that each click re-read the filtered catalogue and blanked
+  // the list. Exactly one write per Save is what removes that.
   const document = { enabledModelIds: [], disabledModelIds: [] }
   const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
   const originalGet = configForms.get
@@ -377,6 +390,43 @@ test('every switch writes the served namespace', async () => {
     }
     return form
   }
+  let catalogReads = 0
+  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }, { id: 'GLM-5.2', name: 'GLM-5.2' }]
+  const base = filteredCatalogueRemote(() => document, all)
+  const remote = {
+    session: {
+      modelCatalog: async () => {
+        catalogReads += 1
+        return await base.session.modelCatalog()
+      },
+    },
+  }
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  const readsAfterMount = catalogReads
+  // Three clicks in a row: zero writes, zero re-reads.
+  await directory.setModel('GLM-5.3', false)
+  await directory.setModel('GLM-5.2', false)
+  await directory.setModel('GLM-5.3', true)
+  assert.deepEqual(namespacesWritten, [], 'no write until Save')
+  assert.equal(catalogReads, readsAfterMount, 'no catalogue re-read until Save')
+
+  await directory.save()
+  assert.deepEqual(namespacesWritten, ['include:dsh-connect-zcode'],
+    'Open must name the namespace the Host serves, exactly once')
+  assert.equal(catalogReads > readsAfterMount, true, 'save refreshes the catalogue once')
+  assert.equal(directory.getSnapshot().writeError, null)
+  // The reconciled document carries both edits.
+  assert.deepEqual(document.disabledModelIds, ['GLM-5.2'])
+})
+
+test('Discard drops the draft without touching the Host', async () => {
+  const document = { enabledModelIds: [], disabledModelIds: [] }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
   const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }]
   const remote = filteredCatalogueRemote(() => document, all)
   const exports = loadBundle({ react: reactStub })
@@ -386,9 +436,12 @@ test('every switch writes the served namespace', async () => {
   await settle()
 
   await directory.setModel('GLM-5.3', false)
-  assert.deepEqual(namespacesWritten, ['include:dsh-connect-zcode'],
-    'writes must name the namespace the Host serves')
-  assert.equal(directory.getSnapshot().writeError, null)
+  assert.equal(directory.getSnapshot().dirty, true)
+  directory.discard()
+  assert.equal(directory.getSnapshot().dirty, false, 'discard clears the draft')
+  assert.deepEqual(document.disabledModelIds, [], 'discard writes nothing')
+  assert.equal(directory.getSnapshot().rows.find((row) => row.id === 'GLM-5.3').on, true,
+    'the row returns to the saved state')
 })
 
 test('a stale catalogue read cannot flip a switch back', async () => {
@@ -410,6 +463,7 @@ test('a stale catalogue read cannot flip a switch back', async () => {
   await settle()
 
   await directory.setModel('GLM-5.3', false)
+  await directory.save()
 
   // The write landed...
   assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'off must persist')
