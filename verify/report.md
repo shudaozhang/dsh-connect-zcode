@@ -2,15 +2,15 @@
 
 Independent verification of the claims in `docs/desktop-integration-contract.md` §9 and the README v0.5.0 section. Everything below was produced by `verify/desktop-e2e.mjs`, which runs the shipped CLI in a clean environment (all `ZCODE_*` variables stripped from every subprocess) and parses the real output.
 
-- Generated: `2026-10-23T14:55:03.519Z`
-- Started: `2026-10-23T14:54:28.112Z` · Finished: `2026-10-23T14:55:03.519Z` (35405 ms)
-- Mode: `--turn` (claims 1–6, two real turns)
-- Repo: `D:\AI\dsh\work\dsh-connect-zcode` @ `36f8256` (main), dirty working tree
-- Source fingerprint: `sha256:e490d0b2eb75a5408935f332f843192fbf7fbf4cecf29ebab1cf995db59764df` over 20 files (lib/, bin/, test/, docs/, README.md, package.json) — stable for the whole run
+- Generated: `2026-10-23T14:58:23.776Z`
+- Started: `2026-10-23T14:58:14.871Z` · Finished: `2026-10-23T14:58:23.777Z` (8905 ms)
+- Mode: offline (claims 1–4; run with `--turn` for 5–6)
+- Repo: `D:\AI\dsh\work\dsh-connect-zcode` @ `f0b0fa7` (main), clean working tree
+- Source fingerprint: `sha256:180816941d91fcee95359adba0fe95c52629b5e06f08212bff184be963158a9f` over 21 files (lib/, bin/, test/, docs/, README.md, package.json) — stable for the whole run
 - Package version: `0.6.0` · Node: `v26.2.0` (win32/x64)
 - Clean env: parent had 0 `ZCODE_*` variable(s); every subprocess env had them removed (stripped names: none present)
 
-## Verdict: **PASS** — 6/6 claims pass
+## Verdict: **PASS** — 4/6 claims pass, 2 skipped
 
 ## Claim verdicts
 
@@ -20,8 +20,8 @@ Independent verification of the claims in `docs/desktop-integration-contract.md`
 | 2 | models in a clean env prints exactly 15 entries across the 6 claimed providers | `models` | **PASS** |
 | 3 | node --test -> >= 53 pass, 0 fail; npm run typecheck -> exit 0 | `node-test`, `typecheck` | **PASS** |
 | 4 | import('./lib/index.js') loads against the real peer packages and exports Config, apply, name, resolveOptions, ZcodeAppServerAdapter | `plugin-load` | **PASS** |
-| 5 | a real streamed turn works on a personal provider (qwen3.8-flash): result success, >=1 delta, response contains OK, inputTokens>0 | `turn-personal` | **PASS** |
-| 6 | the plan route is wired: turn --model GLM-5.3 reaches https://open.bigmodel.cn/api/anthropic and returns business error 1309 (套餐已到期) | `turn-plan` | **PASS** |
+| 5 | a real streamed turn works on a personal provider (qwen3.8-flash): result success, >=1 delta, response contains OK, inputTokens>0 | `turn-personal` | **SKIPPED** |
+| 6 | the plan route is wired: turn --model GLM-5.3 reaches https://open.bigmodel.cn/api/anthropic and returns business error 1309 (套餐已到期) | `turn-plan` | **SKIPPED** |
 
 ## Check summary
 
@@ -32,13 +32,11 @@ Independent verification of the claims in `docs/desktop-integration-contract.md`
 | `node-test` | `node --test` | 0 (0) | **PASS** | 62 pass / 0 fail (tests 62) |
 | `typecheck` | `npm run typecheck` | 0 (0) | **PASS** | tsc exit 0 |
 | `plugin-load` | `node -e "import('./lib/index.js').then(m => { /* inspect exports */ })"` | 0 (0) | **PASS** | exports Config, FALLBACK_CLI_MODELS, ZcodeAppServerAdapter, apply, default, inject, name, pluginDir, resolveOptions; peers @deepseek-ai/cordis@4.0.5, @deepseek-ai/schemastery@3.18.5, @deepseek-ai/dsh-llm@0.2.1-rc.2 |
-| `turn-personal` | `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model qwen3.8-flash` | 0 (0) | **PASS** | result success; 3 streaming delta(s); route new-provider-3/qwen3.8-flash; usage inputTokens 20862; response "OK" |
-| `turn-plan` | `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model GLM-5.3` | 1 (1) | **PASS** | result failed (exit 1); route account:bigmodel-team-coding-plan/GLM-5.3; baseURL https://open.bigmodel.cn/api/anthropic; business error 1309; upstream message "[1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmo |
 
 ### `doctor` — PASS
 
 - Command: `node bin/dsh-connect-zcode.js doctor` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `2957 ms` · 2026-10-23T14:54:28.119Z → 2026-10-23T14:54:31.076Z
+- Exit code: `0` (expected 0) · duration `3045 ms` · 2026-10-23T14:58:14.877Z → 2026-10-23T14:58:17.922Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -169,7 +167,7 @@ Extracted values:
 ### `models` — PASS
 
 - Command: `node bin/dsh-connect-zcode.js models` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `2928 ms` · 2026-10-23T14:54:31.078Z → 2026-10-23T14:54:34.005Z
+- Exit code: `0` (expected 0) · duration `3194 ms` · 2026-10-23T14:58:17.924Z → 2026-10-23T14:58:21.118Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -348,7 +346,7 @@ Extracted values:
 ### `node-test` — PASS
 
 - Command: `node --test` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `1120 ms` · 2026-10-23T14:54:34.006Z → 2026-10-23T14:54:35.127Z
+- Exit code: `0` (expected 0) · duration `1149 ms` · 2026-10-23T14:58:21.120Z → 2026-10-23T14:58:22.269Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -372,7 +370,7 @@ Extracted values:
 ### `typecheck` — PASS
 
 - Command: `npm run typecheck` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `1429 ms` · 2026-10-23T14:54:35.128Z → 2026-10-23T14:54:36.556Z
+- Exit code: `0` (expected 0) · duration `1371 ms` · 2026-10-23T14:58:22.269Z → 2026-10-23T14:58:23.641Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -389,7 +387,7 @@ Extracted values:
 ### `plugin-load` — PASS
 
 - Command: `node -e "import('./lib/index.js').then(m => { /* inspect exports */ })"` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `129 ms` · 2026-10-23T14:54:36.557Z → 2026-10-23T14:54:36.686Z
+- Exit code: `0` (expected 0) · duration `131 ms` · 2026-10-23T14:58:23.641Z → 2026-10-23T14:58:23.772Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -438,118 +436,9 @@ Extracted values:
 }
 ```
 
-### `turn-personal` — PASS
-
-- Command: `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model qwen3.8-flash` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `15938 ms` · 2026-10-23T14:54:36.688Z → 2026-10-23T14:54:52.625Z
-
-| Assertion | Expected | Actual | Result |
-|---|---|---|---|
-| `exit-code` | 0 | 0 | PASS |
-| `result-success` | success | success | PASS |
-| `streaming-deltas>=1` | >= 1 | 3 | PASS |
-| `response-contains-OK` | response includes "OK" | OK | PASS |
-| `usage-inputTokens>0` | inputTokens > 0 | 20862 | PASS |
-| `personal-provider` | non-account provider | new-provider-3 | PASS |
-| `model-is-qwen3.8-flash` | qwen3.8-flash | qwen3.8-flash | PASS |
-
-Extracted values:
-
-```json
-{
-  "resultType": "success",
-  "streamingDeltas": 3,
-  "providerId": "new-provider-3",
-  "route": "new-provider-3/qwen3.8-flash",
-  "observedModelId": "qwen3.8-flash",
-  "reasoningLevel": "xhigh",
-  "baseURL": "https://ws-kv33mm6dt983erxg.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-  "usage": {
-    "source": "provider",
-    "modelRequestCount": 1,
-    "inputTokens": 20862,
-    "outputTokens": 25,
-    "totalTokens": 20887,
-    "cacheReadTokens": 0,
-    "cacheWriteTokens": 0,
-    "reasoningTokens": 21,
-    "webFetchRequests": 0,
-    "webSearchRequests": 0
-  },
-  "usageRaw": "{\"source\":\"provider\",\"modelRequestCount\":1,\"inputTokens\":20862,\"outputTokens\":25,\"totalTokens\":20887,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"reasoningTokens\":21,\"webFetchRequests\":0,\"webSearchRequests\":0}",
-  "response": "OK"
-}
-```
-
-### `turn-plan` — PASS
-
-- Command: `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model GLM-5.3` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `1` (expected 1) · duration `10889 ms` · 2026-10-23T14:54:52.626Z → 2026-10-23T14:55:03.515Z
-
-| Assertion | Expected | Actual | Result |
-|---|---|---|---|
-| `exit-code` | 1 | 1 | PASS |
-| `result-not-success` | not success | failed | PASS |
-| `account-plan-route` | account:* provider | account:bigmodel-team-coding-plan | PASS |
-| `model-is-GLM-5.3` | GLM-5.3 | GLM-5.3 | PASS |
-| `reaches-upstream-url` | https://open.bigmodel.cn/api/anthropic | https://open.bigmodel.cn/api/anthropic | PASS |
-| `business-code-1309` | 1309 | 1309 | PASS |
-| `expired-plan-message` | 套餐已到期 | [1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023225502e2b1f8eca040453d] | PASS |
-
-Extracted values:
-
-```json
-{
-  "resultType": "failed",
-  "providerId": "account:bigmodel-team-coding-plan",
-  "route": "account:bigmodel-team-coding-plan/GLM-5.3",
-  "baseURL": "https://open.bigmodel.cn/api/anthropic",
-  "usage": null,
-  "response": "[1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023225502e2b1f8eca040453d]",
-  "upstreamMessageLines": [
-    "  [1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023225502e2b1f8eca040453d]"
-  ],
-  "businessCode": "1309",
-  "reachedUpstream": true
-}
-```
-
-> A non-zero exit here is the expected outcome: the route works but the account plan is expired upstream.
-
 ## Turn transcripts
 
-### `turn-personal`
-
-- Command: `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model qwen3.8-flash`
-- Exit code: `0` · result: `success` · streaming deltas: `3`
-- Route: `new-provider-3/qwen3.8-flash` (reasoning `xhigh`)
-- baseURL: `https://ws-kv33mm6dt983erxg.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
-- Usage: `{"source":"provider","modelRequestCount":1,"inputTokens":20862,"outputTokens":25,"totalTokens":20887,"cacheReadTokens":0,"cacheWriteTokens":0,"reasoningTokens":21,"webFetchRequests":0,"webSearchRequests":0}`
-- Response (as printed by the CLI, capped at 600 chars):
-
-```text
-OK
-```
-
-### `turn-plan`
-
-- Command: `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model GLM-5.3`
-- Exit code: `1` · result: `failed` · streaming deltas: `n/a`
-- Route: `account:bigmodel-team-coding-plan/GLM-5.3`
-- baseURL: `https://open.bigmodel.cn/api/anthropic`
-- Business error code: `1309`
-- Interpretation: **route wiring works**. The request reached the coding-plan upstream and came back with a real upstream business error; the account's GLM Coding Plan subscription is expired upstream, so the model cannot answer. This is **not** a bridge/plugin failure.
-- Response (as printed by the CLI, capped at 600 chars):
-
-```text
-[1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023225502e2b1f8eca040453d]
-```
-- Exact upstream message line(s):
-
-```text
-  [1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023225502e2b1f8eca040453d]
-```
-
+Turn checks were skipped. Re-run with `--turn` to execute claims 5–6.
 ## Notes
 
 - Claims 1–4 are offline checks. Claims 5–6 run one real streamed turn each and are only executed with `--turn`.
