@@ -1,6 +1,6 @@
 # 安装到 DSH profile（桌面客户端模式）
 
-本插件已经在本机（`D:\AI\dsh\work\zcode-plan-bridge`）完成端到端验证：
+本插件已经在本机（`D:\AI\dsh\work\dsh-connect-zcode`）完成端到端验证：
 `doctor` 全绿、`models` 列出 15 个模型、`turn --model qwen3.8-flash` 真实出字。
 下面把它装进当前 DSH profile，让 **DSH 设置 → 模型** 里出现 provider `zcode-cli`。
 
@@ -10,7 +10,7 @@ profile 目录：`C:\Users\25293\.dsh\profiles\desktop`
 > 所有步骤都可回滚：先备份 `package.json`，失败时还原并重新 `pnpm install` 即可。
 
 > **本机状态（2026-10-23）**：已按方案 A 装好 —— profile `package.json` 里有
-> `"dsh-zcode-plan-bridge": "file:D:/AI/dsh/work/zcode-plan-bridge"`，bundle 已登记，
+> `"dsh-connect-zcode": "file:D:/AI/dsh/work/dsh-connect-zcode"`，bundle 已登记，
 > `pnpm install` 成功（+1 package，未改动其他依赖）。**重启 DSH 后生效**。
 
 ## 方案 A（推荐）：本地目录依赖 + bundle 注册
@@ -24,9 +24,9 @@ node -e @"
 const fs = require('node:fs')
 const p = String.raw`$profile` + '\\package.json'
 const j = JSON.parse(fs.readFileSync(p, 'utf8'))
-j.dependencies['dsh-zcode-plan-bridge'] = 'file:D:/AI/dsh/work/zcode-plan-bridge'
+j.dependencies['dsh-connect-zcode'] = 'file:D:/AI/dsh/work/dsh-connect-zcode'
 const bundles = j.dsh.profile.bundles
-if (!bundles.includes('dsh-zcode-plan-bridge')) bundles.push('dsh-zcode-plan-bridge')
+if (!bundles.includes('dsh-connect-zcode')) bundles.push('dsh-connect-zcode')
 fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n')
 console.log('package.json updated')
 "@
@@ -53,8 +53,8 @@ DSH 的 loader 只在**行 name 变化**时重新 import，Node ESM 又以完整
 
 ```yaml
 - insert:
-    - id: dsh-zcode-plan-bridge
-      name: 'file:///D:/AI/dsh/work/zcode-plan-bridge/lib/index.js?v=1'
+    - id: dsh-connect-zcode
+      name: 'file:///D:/AI/dsh/work/dsh-connect-zcode/lib/index.js?v=1'
 ```
 
 改完 `lib/*.js` 后把 `?v=1` 递增，然后在 **插件管理** 里对该 bundle 禁用 → 启用。
@@ -73,10 +73,10 @@ cd $profile; pnpm install
 ## 装好后的自检（不依赖 DSH）
 
 ```powershell
-cd D:\AI\dsh\work\zcode-plan-bridge
-node bin/dsh-zcode-plan-bridge.js doctor     # 全绿
-node bin/dsh-zcode-plan-bridge.js models     # 15 个模型
-node bin/dsh-zcode-plan-bridge.js turn "Reply with exactly: OK" --model qwen3.8-flash
+cd D:\AI\dsh\work\dsh-connect-zcode
+node bin/dsh-connect-zcode.js doctor     # 全绿
+node bin/dsh-connect-zcode.js models     # 15 个模型
+node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model qwen3.8-flash
 ```
 
 ## 常见问题

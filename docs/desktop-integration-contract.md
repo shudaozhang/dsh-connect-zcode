@@ -1,4 +1,8 @@
-# Desktop-client integration contract (dsh-zcode-plan-bridge)
+# Desktop-client integration contract (dsh-connect-zcode)
+
+> v0.6.0: the plugin was renamed from `dsh-zcode-plan-bridge` to **`dsh-connect-zcode`**,
+> and gained a per-model enable/disable selection (`enabledModelIds` / `disabledModelIds`,
+> applied to the advertised list only -- see §11).
 
 Status: agreed design for v0.5.0 — "connect to the locally installed ZCode **desktop client**".
 
@@ -183,10 +187,10 @@ Resolve `credentials.json` from `resolveZcodeDataRoot(...).dataRoot` first, then
 
 ## 9. Acceptance
 
-1. `node bin/dsh-zcode-plan-bridge.js doctor` (clean env) → all preconditions pass,
+1. `node bin/dsh-connect-zcode.js doctor` (clean env) → all preconditions pass,
    desktop client detected at `E:\zcode`, data root `D:\AI\zcode`.
-2. `node bin/dsh-zcode-plan-bridge.js models` → 15 models, 6 providers.
-3. `node bin/dsh-zcode-plan-bridge.js turn "reply OK"` → real streamed turn succeeds
+2. `node bin/dsh-connect-zcode.js models` → 15 models, 6 providers.
+3. `node bin/dsh-connect-zcode.js turn "reply OK"` → real streamed turn succeeds
    (costs quota; run once, record evidence).
 4. `npm test` and `npm run typecheck` pass.
 5. Plugin loads in DSH profile and lists the models under provider `zcode-cli`.
@@ -222,3 +226,27 @@ the account snapshot is silently ignored unless `basedOnZCodeBuiltinRevision` na
 *same* release file that was handed to the CLI through
 `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` — both paths therefore go through
 `resolveDesktopBuiltinConfig()`.
+
+
+## 11. Per-model selection (v0.6.0)
+
+The desktop client can serve every provider the user ever configured (5 providers /
+15 models on this machine), including API-key channels that may not belong in DSH's
+model picker. The plugin therefore filters the **advertised** list:
+
+| config | default | behaviour |
+|---|---|---|
+| `enabledModelIds` | `[]` | empty = advertise everything; non-empty = only these ids, in catalogue order |
+| `disabledModelIds` | `[]` | always wins over the allow list |
+
+Implementation: `selectEnabledModels()` in `lib/zcode-runtime.js` (pure, dependency-free,
+9 unit tests in `test/model-selection.test.mjs`), applied by
+`ZcodeAppServerAdapter.applyModelSelection()` at the end of `effectiveModels()`.
+
+Deliberately **display-layer only**: `resolveRoute()` / `reasoningInfo()` keep using the
+full catalogue, so hiding a model cannot make an existing DSH selection unroutable.
+Unknown ids are reported (warn in the plugin log, and by `models` in the CLI) instead of
+silently producing an empty picker.
+
+Measured (real adapter, clean env): no selection -> 15 advertised; allow list of two ->
+2 advertised; block list of the two DeepSeek models -> 13 advertised.

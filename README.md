@@ -1,13 +1,15 @@
-# dsh-zcode-plan-bridge
+# dsh-connect-zcode
 
-把 **DeepSeek Harness（DSH）** 的模型请求转交给 ZCode CLI 自带的 agent 执行的本地插件。
+把本机 **ZCode 桌面客户端**的模型接入 **DeepSeek​ Harness（DSH）** 的本地插件。
 
 provider `zcode-cli` 背后是一个常驻的 `zcode app-server` 会话（stdio JSON-RPC，真流式）。
-CLI 自己管着登录账号，插件只是把该账号能服务的模型清单原样转述给 DSH ——
-**烧的是 ZCode 账号的额度，不需要 API Key，也不需要自建网关。**
+插件自动发现客户端的安装位置与数据目录，按客户端自己的方式拉起它自带的 agent，
+再把该账号能服务的模型清单转述给 DSH —— **烧的是 ZCode 账号的额度，不需要 API Key，也不需要自建网关。**
+模型可以按需勾选启用哪些（见「选择启用哪些模型」）。
 
-本仓库：<https://github.com/tangyixiao/dsh-zcode-plan-bridge> ·
-上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0）
+本仓库：<https://github.com/tangyixiao/dsh-connect-zcode> ·
+上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0） ·
+前身：`dsh-zcode-plan-bridge`（v0.6.0 起更名为 `dsh-connect-zcode`）
 
 > ## v0.5.0：直接接入本机 ZCode **桌面客户端**（新增，本机实测）
 >
@@ -162,12 +164,12 @@ app-server **一个会话同时只允许一个在途回合**。上一轮被中�
 插件带一个不依赖 DSH 宿主的诊断入口（只用 Node 内置模块，**插件因版本不兼容加载失败时也能用**）：
 
 ```
-node bin/dsh-zcode-plan-bridge.js              # 列出子命令
-node bin/dsh-zcode-plan-bridge.js doctor       # 本地前置条件体检（离线，不耗额度）
-node bin/dsh-zcode-plan-bridge.js models       # 打印 CLI 上报的完整模型清单
-node bin/dsh-zcode-plan-bridge.js protocol     # 起 app-server 走一遍握手，验证协议没变
-node bin/dsh-zcode-plan-bridge.js turn "hi"    # 真发一个回合（消耗额度）
-node bin/dsh-zcode-plan-bridge.js image <file> # 发一张图（消耗额度）
+node bin/dsh-connect-zcode.js              # 列出子命令
+node bin/dsh-connect-zcode.js doctor       # 本地前置条件体检（离线，不耗额度）
+node bin/dsh-connect-zcode.js models       # 打印 CLI 上报的完整模型清单
+node bin/dsh-connect-zcode.js protocol     # 起 app-server 走一遍握手，验证协议没变
+node bin/dsh-connect-zcode.js turn "hi"    # 真发一个回合（消耗额度）
+node bin/dsh-connect-zcode.js image <file> # 发一张图（消耗额度）
 ```
 
 通用参数：`--cli-path <zcode.cjs>`、`--data-dir <~/.zcode 的上级>`、`--model <id>`、`--json`、
@@ -184,6 +186,29 @@ node bin/dsh-zcode-plan-bridge.js image <file> # 发一张图（消耗额度）
 > 这五个子命令取代了上游 `scripts/probe-*.cjs` 那十个一次性脚本。那些脚本各自硬编码了作者
 > 本机路径、改一次才能问另一个问题，已删除。
 
+## 选择启用哪些模型
+
+插件默认把客户端能服务的**全部**模型都报给 DSH（本机 15 个）。只想用其中几个时，用两个配置项挑：
+
+```yaml
+enabledModelIds:  [GLM-5.3, GLM-5.3-Flash]   # 只启用这两个（留空 = 全部）
+disabledModelIds: [deepseek-flash]           # 额外停用（优先级更高）
+```
+
+改完保存即可（插件会重新解析配置，无需重装）；DSH 的模型选择器里就只剩勾选的那些。
+
+**怎么知道该填哪些 id？** 跑一次诊断命令，它会列出全部 id，并按你当前的配置标注 `[disabled]`：
+
+```powershell
+node bin/dsh-connect-zcode.js models
+node bin/dsh-connect-zcode.js models --enable-model "GLM-5.3,qwen3.8-flash"   # 预览勾选效果
+```
+
+填错的 id 不会被静默忽略：`models` 会打印 `enabledModelIds not found in the catalogue: ...`，
+插件运行时也会在日志里 warn 一次，方便发现拼写错误。
+
+> 说明：这是**显示层**的筛选 —— CLI 那边仍然能服务全部模型，路由表不受影响。
+> 因此已停用的模型不会出现在选择器里，但不会因为“停用”而导致历史会话报错。
 ## 配置（设置 → 插件）
 
 | 字段 | 默认 | 说明 |
@@ -195,6 +220,8 @@ node bin/dsh-zcode-plan-bridge.js image <file> # 发一张图（消耗额度）
 | `accountSync` | `true` | 是否把套餐账号 provider（`account:*`）推给桌面版 CLI 并刷新 registry；关掉只剩个人 provider |
 | `zcodeCliNode` | `node` | 运行 zcode.cjs 的 node 可执行文件（仅 node 模式使用；桌面模式用客户端自带的 `ZCode.exe`） |
 | `cliModels` | `[]` | **留空 = 跟随 CLI 上报的清单**（推荐）。填了就等于把清单钉死成这份，只用 `cliModelId` 决定 CLI 侧路由 |
+| `enabledModelIds` | `[]` | **只启用这些模型**（写 CLI 上报的 modelId，如 `GLM-5.3`）。留空 = 全部启用 |
+| `disabledModelIds` | `[]` | 额外停用某些 modelId；优先级高于 `enabledModelIds`，适合“全部启用但关掉个别” |
 | `authorizationPolicy` | `deny` | `deny` 会拒绝 ZCode 的权限请求且不提供交互确认；只有你明确接受无人值守工具执行时才设为 `allow-all`。未知 permission/approval 方法始终拒绝 |
 | `cliCwd` | 空 | app-server 会话的工作目录；空 = 用户主目录 |
 | `zcodeDataBaseDir` | 空 | ZCode 数据根目录；空 = 读 `~/.zcode/v2/setting.json` 的 `dataBaseDir`，再兜底用户主目录 |
@@ -218,8 +245,8 @@ npm run diagnose   # 诊断命令入口
 
 ```yaml
 - insert:
-    - id: dsh-zcode-plan-bridge
-      name: 'file:///D:/path/to/dsh-zcode-plan-bridge/lib/index.js?v=N'
+    - id: dsh-connect-zcode
+      name: 'file:///D:/path/to/dsh-connect-zcode/lib/index.js?v=N'
 ```
 
 改完 `lib/*.js` 后把 `?v=N` 递增，然后在插件管理里对 bundle **禁用 → 启用**（或重启 DSH）。
@@ -238,8 +265,9 @@ lib/messages.js     消息工具：图片物化、对话拍平、泄漏工具调
 lib/credentials.js  解密 credentials.json（数据根优先、~/.zcode/v2 兜底）
 lib/diagnostics.js  五个诊断子命令（doctor/models/protocol/turn/image），走同一套启动计划
 bin/                可执行入口
-test/               纯函数单测（node --test；26 个桌面发现用例 + 原有 27 个）
-docs/               桌面接入设计契约、参考插件模式研究
+test/               纯函数单测（node --test；62 个用例：桌面发现 26 + 模型筛选 9 + 原有 27）
+docs/               设计契约、安装/回滚、参考插件研究、发布清单
+CHANGELOG.md        版本变更记录
 verify/             E2E 验证脚本与证据（verify/desktop-e2e.mjs）
 ```
 

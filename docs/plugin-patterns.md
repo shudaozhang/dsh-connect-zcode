@@ -1,12 +1,12 @@
 # 参考插件模式研究 / Reference-plugin patterns
 
-**Context.** `dsh-zcode-plan-bridge` 把 ZCode CLI 自带的 agent 以 provider `zcode-cli` 接进 DSH：常驻
+**Context.** `dsh-connect-zcode` 把 ZCode CLI 自带的 agent 以 provider `zcode-cli` 接进 DSH：常驻
 `zcode app-server`（stdio JSON-RPC），从 `session/create` 读账号可服务的模型清单，按 DSH sessionId
 复用会话，鉴权走 `interaction/requestProviderRuntimeHeaders` 回 `zcodejwttoken`。本文从三个"连接本机
 已登录客户端"的已装插件提取可复用模式，并逐条对照本仓库现状。
 
 **Legend**：`[T]`=dsh-connect-trae 4.0.1、`[W]`=dsh-connect-workbuddy 4.12.0、`[C]`=dsh-codearts 1.1.1，
-均在 `C:\Users\25293\.dsh\profiles\desktop\node_modules\<pkg>\`；`[Z]`=`D:\AI\dsh\work\zcode-plan-bridge`。
+均在 `C:\Users\25293\.dsh\profiles\desktop\node_modules\<pkg>\`；`[Z]`=`D:\AI\dsh\work\dsh-connect-zcode`。
 `[T]/[W]/[C]` 的引用是**已发布产物**（`lib/*.js`、`lib/*.mjs`、`cordis.patch.yml`、`package.json`）的
 `file:line`，版本固定、行号稳定；`[Z]` 因本仓库在并行开发，改用**符号/字段名**引用（如
 `resolveModels`、`Config.cliModels`），避免行号漂移后失效。
@@ -161,7 +161,7 @@ OAuth2 PKCE+DPoP）。本桥属前者，但多一层"客户端自带 CLI 进程"
 - **R5.1 独立诊断 CLI：子命令 + `--json` + `schemaVersion` + 脱敏** — 证据 `[W] lib/bin.js:41-51`
   （`doctor`/`status`/`logout` + `--json` 帮助）、`:29,103`（`JSON_SCHEMA_VERSION = 4` 写进报告，
   注释说明版本号让消费方区分"老构建"与"字段缺失"）、`:38-40`（`safeMessage`）、`package.json:23-25`（bin）。
-  — 应用于本桥：`[Z] bin/dsh-zcode-plan-bridge.js` + `[Z] lib/diagnostics.js` 已有五子命令与 `--json`
+  — 应用于本桥：`[Z] bin/dsh-connect-zcode.js` + `[Z] lib/diagnostics.js` 已有五子命令与 `--json`
   （`diagnostics.js:883`）。**缺口**：JSON 无 `schemaVersion`/`package`/`version`，建议补齐（S 级），
   让 issue 里贴的 JSON 可长期解析。
 - **R5.2 诊断要回答"探测了什么、怎么找到的、缺什么"** — 证据 `[W] lib/bin.js:118-123`
@@ -175,7 +175,7 @@ OAuth2 PKCE+DPoP）。本桥属前者，但多一层"客户端自带 CLI 进程"
   而非脚本里再写一版，理由是"隐私逻辑最怕两处各写一版"）、`:38-60`（找不到构建产物时给操作指引
   而不是 `ERR_MODULE_NOT_FOUND` 栈）。 — 应用于本桥：`doctor` 已复用 `lib/*.js`（符合）；建议把脱敏
   集中一处并被 `doctor` 与异常处理共用，且 `bin/` 对"插件加载失败"给指引（README:123 已宣称该能力，
-  需在 `[Z] bin/dsh-zcode-plan-bridge.js` 落实并加测试）。
+  需在 `[Z] bin/dsh-connect-zcode.js` 落实并加测试）。
 - **R5.4 面向用户的错误 = 现状 + 下一步动作** — 证据 `[T] lib/client.js:5755-5756`（`signedOut`"未登录"
   + `signedOutHint`"在 Trae 桌面 App 里登录一次即可，插件会自动跟随当前登录的账号"）、`:5767-5768`
   （refresh token 将过期/已过期各给"还剩 N 天 / 请重新登录"）。 — 应用于本桥：`[Z] lib/index.js` 的 `apply()` 内 "no ZCode CLI found" warn
@@ -195,7 +195,7 @@ OAuth2 PKCE+DPoP）。本桥属前者，但多一层"客户端自带 CLI 进程"
   `C:\Users\25293\.dsh\profiles\desktop\package.json:4-24`（依赖）与 `:31-52`（bundles 数组，三个参考
   插件都在其中，顺序即加载顺序）。 — 应用于本桥：README:46 只说"装进 DSH profile"；建议补
   "需同时出现在 `dependencies` 与 `dsh.profile.bundles`"，给出 `dsh plugin --profile desktop add
-  dsh-zcode-plan-bridge`（`[T] README.md:151-163` 的写法）与"改完 bundle 需重启 DSH 进程"（同处 `:163`）。
+  dsh-connect-zcode`（`[T] README.md:151-163` 的写法）与"改完 bundle 需重启 DSH 进程"（同处 `:163`）。
 - **R6.3 `exports` 要显式导出 `./cordis.patch.yml` 与 `./package.json`** — 证据 `[T] package.json:24-32`、
   `[W] package.json:27-35`、`[C] package.json:36-47` 三者 exports 都含这两条，客户端入口另导 `"./client"`。
   — 应用于本桥：`[Z] package.json:36-41` 只有 `"."` 与 `"./package.json"`，**缺 `"./cordis.patch.yml"`**；

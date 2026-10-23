@@ -1,6 +1,6 @@
-# dsh-zcode-plan-bridge bundle patch: inserts the plugin row into the profile tree.
+# dsh-connect-zcode bundle patch: inserts the plugin row into the profile tree.
 # Applied as one layer after dsh-base / dsh-web-app.
-# The row id (dsh-zcode-plan-bridge) doubles as the settings group key on the Config page.
+# The row id (dsh-connect-zcode) doubles as the settings group key on the Config page.
 #
 # name must be the package.json name: the loader resolves it from the profile's
 # node_modules by package name (npm install and link: assemblies both take that path).
@@ -9,5 +9,5 @@
 # the module when the row name changes, and Node ESM keys its cache on the full URL, so
 # bump N after editing lib/*.js and re-enable the bundle.
 - insert:
-    - id: dsh-zcode-plan-bridge
-      name: 'dsh-zcode-plan-bridge'
+    - id: dsh-connect-zcode
+      name: 'dsh-connect-zcode'

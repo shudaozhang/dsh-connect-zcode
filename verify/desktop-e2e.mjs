@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Independent end-to-end verification harness for the dsh-zcode-plan-bridge
+ * Independent end-to-end verification harness for the dsh-connect-zcode
  * desktop-client integration (v0.5.0).
  *
  * It runs the shipped CLI exactly as documented, in a clean environment (every
@@ -395,8 +395,8 @@ function parseTestCounts(stdout) {
 // ---------------------------------------------------------------------------
 
 function checkDoctor() {
-  const run = runProcess('doctor', 'node bin/dsh-zcode-plan-bridge.js doctor', NODE_EXEC, [
-    'bin/dsh-zcode-plan-bridge.js',
+  const run = runProcess('doctor', 'node bin/dsh-connect-zcode.js doctor', NODE_EXEC, [
+    'bin/dsh-connect-zcode.js',
     'doctor',
   ], { timeoutMs: 180_000 })
   const facts = parseDoctor(run.stdout)
@@ -427,8 +427,8 @@ function checkDoctor() {
 }
 
 function checkModels() {
-  const run = runProcess('models', 'node bin/dsh-zcode-plan-bridge.js models', NODE_EXEC, [
-    'bin/dsh-zcode-plan-bridge.js',
+  const run = runProcess('models', 'node bin/dsh-connect-zcode.js models', NODE_EXEC, [
+    'bin/dsh-connect-zcode.js',
     'models',
   ], { timeoutMs: 180_000 })
   const entries = parseModels(run.stdout)
@@ -472,13 +472,15 @@ function checkNodeTest() {
   const counts = parseTestCounts(run.stdout)
   const assertions = [
     assertion('exit-code', run.exitCode === 0, 0, run.exitCode),
-    assertion('pass-count', counts.pass === 53, 53, counts.pass),
+    // Floor, not an exact count: the suite grows as features land, and the claim is
+    // 'the suite passes', not 'it has exactly N cases'.
+    assertion('pass-count-at-least-53', counts.pass >= 53, '>= 53', counts.pass),
     assertion('fail-count', counts.fail === 0, 0, counts.fail),
   ]
   return buildCheck({
     id: 'node-test',
     claim: 3,
-    title: 'node --test: 53 pass, 0 fail',
+    title: 'node --test: >= 53 pass, 0 fail',
     run,
     expectedExit: 0,
     assertions,
@@ -568,7 +570,7 @@ function checkPluginLoad() {
     )
   }
   assertions.push(
-    assertion('export-name-value', parsed?.name === 'dsh-zcode-plan-bridge', 'dsh-zcode-plan-bridge', parsed?.name ?? null),
+    assertion('export-name-value', parsed?.name === 'dsh-connect-zcode', 'dsh-connect-zcode', parsed?.name ?? null),
   )
   const peerVersions = readPeerVersions()
   return buildCheck({
@@ -593,9 +595,9 @@ function checkPersonalTurn() {
   const prompt = 'Reply with exactly: OK'
   const run = runProcess(
     'turn-personal',
-    `node bin/dsh-zcode-plan-bridge.js turn "${prompt}" --model ${PERSONAL_MODEL}`,
+    `node bin/dsh-connect-zcode.js turn "${prompt}" --model ${PERSONAL_MODEL}`,
     NODE_EXEC,
-    ['bin/dsh-zcode-plan-bridge.js', 'turn', prompt, '--model', PERSONAL_MODEL],
+    ['bin/dsh-connect-zcode.js', 'turn', prompt, '--model', PERSONAL_MODEL],
     { timeoutMs: 300_000 },
   )
   const turn = parseTurn(run.stdout)
@@ -638,9 +640,9 @@ function checkPlanTurn() {
   const prompt = 'Reply with exactly: OK'
   const run = runProcess(
     'turn-plan',
-    `node bin/dsh-zcode-plan-bridge.js turn "${prompt}" --model ${PLAN_MODEL}`,
+    `node bin/dsh-connect-zcode.js turn "${prompt}" --model ${PLAN_MODEL}`,
     NODE_EXEC,
-    ['bin/dsh-zcode-plan-bridge.js', 'turn', prompt, '--model', PLAN_MODEL],
+    ['bin/dsh-connect-zcode.js', 'turn', prompt, '--model', PLAN_MODEL],
     { timeoutMs: 300_000 },
   )
   const turn = parseTurn(run.stdout)
@@ -768,7 +770,7 @@ const CLAIMS = [
   },
   {
     id: 3,
-    title: 'node --test -> 53 pass, 0 fail; npm run typecheck -> exit 0',
+    title: 'node --test -> >= 53 pass, 0 fail; npm run typecheck -> exit 0',
     checks: ['node-test', 'typecheck'],
   },
   {
@@ -809,7 +811,7 @@ function mdInline(value) {
 
 function renderMarkdown(report) {
   const lines = []
-  lines.push('# dsh-zcode-plan-bridge — desktop integration E2E verification')
+  lines.push('# dsh-connect-zcode — desktop integration E2E verification')
   lines.push('')
   lines.push('Independent verification of the claims in `docs/desktop-integration-contract.md` §9 and the README v0.5.0 section. Everything below was produced by `verify/desktop-e2e.mjs`, which runs the shipped CLI in a clean environment (all `ZCODE_*` variables stripped from every subprocess) and parses the real output.')
   lines.push('')
@@ -943,15 +945,15 @@ function main() {
   const fingerprintBefore = fingerprintRepo()
 
   const specs = [
-    { id: 'doctor', claim: 1, title: 'doctor', command: 'node bin/dsh-zcode-plan-bridge.js doctor', run: checkDoctor },
-    { id: 'models', claim: 2, title: 'models', command: 'node bin/dsh-zcode-plan-bridge.js models', run: checkModels },
+    { id: 'doctor', claim: 1, title: 'doctor', command: 'node bin/dsh-connect-zcode.js doctor', run: checkDoctor },
+    { id: 'models', claim: 2, title: 'models', command: 'node bin/dsh-connect-zcode.js models', run: checkModels },
     { id: 'node-test', claim: 3, title: 'node --test', command: 'node --test', run: checkNodeTest },
     { id: 'typecheck', claim: 3, title: 'npm run typecheck', command: 'npm run typecheck', run: checkTypecheck },
     { id: 'plugin-load', claim: 4, title: 'plugin import', command: "node -e \"import('./lib/index.js')...\"", run: checkPluginLoad },
   ]
   if (RUN_TURN) {
-    specs.push({ id: 'turn-personal', claim: 5, title: 'personal turn', command: `node bin/dsh-zcode-plan-bridge.js turn "Reply with exactly: OK" --model ${PERSONAL_MODEL}`, run: checkPersonalTurn })
-    specs.push({ id: 'turn-plan', claim: 6, title: 'plan route turn', command: `node bin/dsh-zcode-plan-bridge.js turn "Reply with exactly: OK" --model ${PLAN_MODEL}`, run: checkPlanTurn })
+    specs.push({ id: 'turn-personal', claim: 5, title: 'personal turn', command: `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model ${PERSONAL_MODEL}`, run: checkPersonalTurn })
+    specs.push({ id: 'turn-plan', claim: 6, title: 'plan route turn', command: `node bin/dsh-connect-zcode.js turn "Reply with exactly: OK" --model ${PLAN_MODEL}`, run: checkPlanTurn })
   }
 
   const checks = []

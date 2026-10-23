@@ -1,19 +1,19 @@
 {
-  "name": "dsh-zcode-plan-bridge",
-  "version": "0.5.0",
-  "description": "Exposes the local ZCode desktop client (or the npm CLI) as a DeepSeek Harness model provider: auto-discovers the client install and data root, launches the bundled agent exactly the way the client does, registers coding-plan account routes, and streams turns with image input and per-session reuse. Derived from kyle123740/dsh-zcode-cli-proxy.",
+  "name": "dsh-connect-zcode",
+  "version": "0.6.0",
+  "description": "把本机 ZCode 桌面客户端的模型接入 DeepSeek​ Harness：自动发现客户端安装与数据目录，按客户端自己的方式启动内置 agent，注册编码套餐路由，并支持逐模型启用/停用。",
   "license": "AGPL-3.0",
   "author": "kyle123740",
   "contributors": [
     "tangyixiao"
   ],
-  "homepage": "https://github.com/tangyixiao/dsh-zcode-plan-bridge#readme",
+  "homepage": "https://github.com/tangyixiao/dsh-connect-zcode#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tangyixiao/dsh-zcode-plan-bridge.git"
+    "url": "git+https://github.com/tangyixiao/dsh-connect-zcode.git"
   },
   "bugs": {
-    "url": "https://github.com/tangyixiao/dsh-zcode-plan-bridge/issues"
+    "url": "https://github.com/tangyixiao/dsh-connect-zcode/issues"
   },
   "keywords": [
     "deepseek-harness",
@@ -21,17 +21,18 @@
     "zcode",
     "glm",
     "zai",
-    "model-provider"
+    "model-provider",
+    "desktop-client"
   ],
   "type": "module",
   "main": "lib/index.js",
   "bin": {
-    "dsh-zcode-plan-bridge": "bin/dsh-zcode-plan-bridge.js"
+    "dsh-connect-zcode": "bin/dsh-connect-zcode.js"
   },
   "scripts": {
     "test": "node --test",
     "typecheck": "tsc -p tsconfig.json",
-    "diagnose": "node bin/dsh-zcode-plan-bridge.js"
+    "diagnose": "node bin/dsh-connect-zcode.js"
   },
   "exports": {
     ".": {
@@ -71,6 +72,7 @@
     "bin",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ]
 }

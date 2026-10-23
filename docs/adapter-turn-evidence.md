@@ -22,7 +22,7 @@ mode: auto | desktop: E:\zcode | dataRoot: D:\AI\zcode\.zcode\v2
 [info] zcode: app-server started (pid 28548)
 [info] zcode: app-server runtime ready
 [info] zcode: account provider account:bigmodel-team-coding-plan registered
-       ({"receivedRevision":"dsh-zcode-plan-bridge:account:bigmodel-team-coding-plan:mvl27cu8","providerCount":1,"status":"received"})
+       ({"receivedRevision":"dsh-connect-zcode:account:bigmodel-team-coding-plan:mvl27cu8","providerCount":1,"status":"received"})
 [info] zcode: provider registry refreshed after registering account:bigmodel-team-coding-plan
 [info] zcode: server request session/requestRuntimePreferences {"sessionId":"sess_4fec3dc2-...","scope":"runtime-materialization"}
 [info] zcode: session permission mode set to build

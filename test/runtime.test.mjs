@@ -4,7 +4,7 @@
  * Scope: the parts that encode decisions and can be wrong silently -- catalogue
  * normalisation, provider collapsing, route selection, credential decryption, history
  * flattening, leak suppression. Nothing here spawns the ZCode CLI (that costs quota and
- * needs a signed-in account); the wire protocol is covered by `dsh-zcode-plan-bridge
+ * needs a signed-in account); the wire protocol is covered by `dsh-connect-zcode
  * protocol`, which is meant to be run by hand after a CLI upgrade.
  *
  * Run: node --test test/

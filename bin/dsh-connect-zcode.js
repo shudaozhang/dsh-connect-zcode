@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Diagnostics entry point for dsh-zcode-plan-bridge.
+ * Diagnostics entry point for dsh-connect-zcode.
  *
- *   npx dsh-zcode-plan-bridge doctor
- *   node bin/dsh-zcode-plan-bridge.js doctor
+ *   npx dsh-connect-zcode doctor
+ *   node bin/dsh-connect-zcode.js doctor
  *
  * The commands live in lib/diagnostics.js; this wrapper only forwards argv and the exit
  * code so the package can declare a `bin` without shipping a second implementation.
  *
- * @module bin/dsh-zcode-plan-bridge
+ * @module bin/dsh-connect-zcode
  */
 
 import { runCli } from '../lib/diagnostics.js'
