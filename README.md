@@ -85,7 +85,7 @@ DSH Agent ──► provider "zcode-cli" ──► ZcodeAppServerAdapter
 
 1. 装一份 ZCode CLI（`npm i -g zcode-app-cli`，或桌面客户端自带的 `zcode.cjs`），并登录有额度的账号。
 2. 把本插件装进 DSH profile，重启 DSH。
-3. DSH 设置 → 模型（Models）→ 提供方 **ZCode CLI (account bridge)** → 选模型。
+3. DSH 设置 → 模型（Models）→ 提供方 **zcode** → 选模型。
 
 可用模型**不是插件写死的**，而是 CLI 当前账号能服务的那批。本机实测（2026-10-22）：
 

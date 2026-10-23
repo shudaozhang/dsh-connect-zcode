@@ -43,7 +43,7 @@ pnpm install --prefer-offline
 [zcode-cli] account provider account:bigmodel-team-coding-plan registered
 ```
 
-打开 **设置 → 模型 → 提供方 `ZCode CLI（客户端 agent）`**，应能看到 15 个模型
+打开 **设置 → 模型 → 提供方 `zcode`**，应能看到 15 个模型
 （13 个个人 provider + GLM-5.3 / GLM-5.3-Flash 两条套餐路由）。
 
 ## 方案 B：开发期热替换（不写 package.json）

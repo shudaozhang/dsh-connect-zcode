@@ -2,11 +2,11 @@
 
 Independent verification of the claims in `docs/desktop-integration-contract.md` §9 and the README v0.5.0 section. Everything below was produced by `verify/desktop-e2e.mjs`, which runs the shipped CLI in a clean environment (all `ZCODE_*` variables stripped from every subprocess) and parses the real output.
 
-- Generated: `2026-10-23T14:58:23.776Z`
-- Started: `2026-10-23T14:58:14.871Z` · Finished: `2026-10-23T14:58:23.777Z` (8905 ms)
+- Generated: `2026-10-23T15:09:27.038Z`
+- Started: `2026-10-23T15:09:18.511Z` · Finished: `2026-10-23T15:09:27.038Z` (8526 ms)
 - Mode: offline (claims 1–4; run with `--turn` for 5–6)
-- Repo: `D:\AI\dsh\work\dsh-connect-zcode` @ `f0b0fa7` (main), clean working tree
-- Source fingerprint: `sha256:180816941d91fcee95359adba0fe95c52629b5e06f08212bff184be963158a9f` over 21 files (lib/, bin/, test/, docs/, README.md, package.json) — stable for the whole run
+- Repo: `D:\AI\dsh\work\dsh-connect-zcode` @ `cc26f24` (main), dirty working tree
+- Source fingerprint: `sha256:f55f7d6a565deecf6a46816069b211d37551e72ce24d37fc66370c14dc053357` over 21 files (lib/, bin/, test/, docs/, README.md, package.json) — stable for the whole run
 - Package version: `0.6.0` · Node: `v26.2.0` (win32/x64)
 - Clean env: parent had 0 `ZCODE_*` variable(s); every subprocess env had them removed (stripped names: none present)
 
@@ -36,7 +36,7 @@ Independent verification of the claims in `docs/desktop-integration-contract.md`
 ### `doctor` — PASS
 
 - Command: `node bin/dsh-connect-zcode.js doctor` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `3045 ms` · 2026-10-23T14:58:14.877Z → 2026-10-23T14:58:17.922Z
+- Exit code: `0` (expected 0) · duration `2992 ms` · 2026-10-23T15:09:18.517Z → 2026-10-23T15:09:21.509Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -167,7 +167,7 @@ Extracted values:
 ### `models` — PASS
 
 - Command: `node bin/dsh-connect-zcode.js models` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `3194 ms` · 2026-10-23T14:58:17.924Z → 2026-10-23T14:58:21.118Z
+- Exit code: `0` (expected 0) · duration `2924 ms` · 2026-10-23T15:09:21.511Z → 2026-10-23T15:09:24.435Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -346,7 +346,7 @@ Extracted values:
 ### `node-test` — PASS
 
 - Command: `node --test` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `1149 ms` · 2026-10-23T14:58:21.120Z → 2026-10-23T14:58:22.269Z
+- Exit code: `0` (expected 0) · duration `1119 ms` · 2026-10-23T15:09:24.436Z → 2026-10-23T15:09:25.555Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -370,7 +370,7 @@ Extracted values:
 ### `typecheck` — PASS
 
 - Command: `npm run typecheck` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `1371 ms` · 2026-10-23T14:58:22.269Z → 2026-10-23T14:58:23.641Z
+- Exit code: `0` (expected 0) · duration `1355 ms` · 2026-10-23T15:09:25.556Z → 2026-10-23T15:09:26.911Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
@@ -387,7 +387,7 @@ Extracted values:
 ### `plugin-load` — PASS
 
 - Command: `node -e "import('./lib/index.js').then(m => { /* inspect exports */ })"` (cwd `D:\AI\dsh\work\dsh-connect-zcode`)
-- Exit code: `0` (expected 0) · duration `131 ms` · 2026-10-23T14:58:23.641Z → 2026-10-23T14:58:23.772Z
+- Exit code: `0` (expected 0) · duration `122 ms` · 2026-10-23T15:09:26.911Z → 2026-10-23T15:09:27.033Z
 
 | Assertion | Expected | Actual | Result |
 |---|---|---|---|
