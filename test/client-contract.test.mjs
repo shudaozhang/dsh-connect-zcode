@@ -44,13 +44,36 @@ test('the card is keyed by package name and by <pkg>#<rowId>', () => {
   assert.match(source, /`\$\{PACKAGE_NAME\}#\$\{PACKAGE_NAME\}`/u)
 })
 
-test('settings binding waits for the namespace instead of giving up at mount', () => {
-  // The defect: a single `forms.get(ns)` at mount left the card permanently read-only,
-  // because the settings mirror answers after the Plugins page mounts.
-  assert.match(source, /whileServed\(/u, 'must use configForms.whileServed')
-  assert.match(source, /SETTINGS_NS_CANDIDATES/u, 'must try the known namespace spellings')
-  // Both prefixed and bare spellings have to be watched.
-  assert.match(source, /`include:\$\{SETTINGS_NS\}`/u)
+test('settings binding asks the Host instead of guessing a namespace', () => {
+  // THE DEFECT: `configForms.get(entryId)` lazily CONSTRUCTS a controller for ANY id
+  // (`ConfigForms.get`: `new ConfigFormController(this.owner, { namespace: entryId }, …)`),
+  // so a `get()`-returns-something check can never fail. The old code walked the candidate
+  // list, took the first truthy result, and bound the BARE package name. The live host
+  // serves this plugin as `include:dsh-connect-zcode`, and `ConfigFormController.derive()`
+  // matches with EXACT equality, so that form was `unavailable` for its whole lifetime:
+  // the red "插件配置当前不可用" banner plus every write rejected by the Host.
+  assert.match(source, /forms\.describe\(\)/u, 'must read the served-namespace directory')
+  assert.match(source, /servedNamespaces/u, 'must consult the served set')
+  assert.match(source, /resolveServedNamespace/u, 'must resolve a name from the served set')
+  assert.match(source, /whileServed\(/u, 'must still follow later arrivals')
+  // It must NOT treat a bare forms.get() as proof that a namespace is served.
+  const bindBlock = source.slice(source.indexOf('const bindNow'), source.indexOf('const bindNow') + 1400)
+  assert.doesNotMatch(
+    bindBlock,
+    /for \(const namespace of SETTINGS_NS_CANDIDATES\)[\s\S]{0,200}?forms\.get\(namespace\)/u,
+    'must not probe candidate spellings with forms.get()',
+  )
+})
+
+test('an unserved binding self-heals to a served one instead of staying red', () => {
+  assert.match(source, /config\.status === "unavailable"/u)
+  assert.match(source, /target !== boundNamespace/u, 'must move the binding when the served set disagrees')
+})
+
+test('editing is gated on being bound, not on the scope writable flag', () => {
+  // `writable` stays false until the mirror settles, so gating on it disabled every
+  // switch on a healthy install.
+  assert.match(source, /const controlsDisabled = busy \|\| snapshot\.bound !== true/u)
 })
 
 test('a missing/served-later config is a pending state, not an error banner', () => {
