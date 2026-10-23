@@ -9,6 +9,45 @@ CLI 自己管着登录账号，插件只是把该账号能服务的模型清单�
 本仓库：<https://github.com/tangyixiao/dsh-zcode-plan-bridge> ·
 上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0）
 
+> ## v0.5.0：直接接入本机 ZCode **桌面客户端**（新增，本机实测）
+>
+> v0.4.x 只认 npm 版 CLI（`zcode-app-cli`）和 `%LOCALAPPDATA%\Programs\ZCode` 这类标准安装位。
+> 本机客户端装在 **`E:\zcode`**（自定义路径），且 `~/.zcode/v2/setting.json` 里
+> `dataBaseDir = D:\AI\zcode`（**数据根目录也不是 home**），所以旧版一律找不到。
+>
+> v0.5.0 起插件自己完成整套桌面接入，**无需任何环境变量**：
+>
+> 1. **发现客户端**：注册表 `Uninstall` 项的 `DisplayName ^ZCode` → 解析 `InstallLocation` /
+>    `UninstallString` / `DisplayIcon` 得到安装根（本机 `E:\zcode`，版本 `3.16.3`），
+>    再兜底 `%LOCALAPPDATA%\Programs\ZCode`、`%ProgramFiles%\ZCode`。
+> 2. **解析数据根**：读 `~/.zcode/v2/setting.json` 的 `dataBaseDir` → `D:\AI\zcode`，
+>    于是凭证 / 个人 provider / 内置 release 都从 `D:\AI\zcode\.zcode\v2` 取
+>    （home 下那份是 6 月的过期副本）。
+> 3. **按客户端自己的方式启动 CLI**：
+>    `E:\zcode\ZCode.exe  E:\zcode\resources\glm\zcode.cjs  app-server --stdio --surface desktop`
+>    —— 这是从运行中的客户端进程命令行实测出来的形态，并注入它需要的
+>    `ELECTRON_RUN_AS_NODE=1`、`ZCODE_DATA_BASE_DIR`、`ZCODE_BUILTIN_PROVIDER_CONFIG_FILE`、
+>    `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`（**缺了这些 CLI 会直接退出**）。
+> 4. **注册套餐账号 provider**：桌面版 CLI 不是 standalone 模式，`provider/updateAccountConfig`
+>    会被接受；插件把内置 release 里声明的 `account:*` 套餐 provider 连同
+>    `{availability, current, entitled}` 状态推给它并刷新 registry，模型清单从 13 条变成 15 条。
+> 5. **按路由选对签名凭证**：`account:*` 用凭证里的
+>    `account-provider:coding-plan:<providerId>:account:<id>:api-key`，
+>    z.ai Start Plan 才用 `zcodejwttoken`（用错会卡在 `Client signing requires an API Key`）。
+>
+> 本机实测结果（2026-10-23，干净环境）：
+>
+> | 检查 | 结果 |
+> |---|---|
+> | `doctor` | 全绿：客户端 `E:\zcode` 3.16.3、数据根 `D:\AI\zcode`、内置 release `3.16.3 (runtime)`、凭证 204 字符 JWT |
+> | `models` | **15** 个模型 / 6 个 provider（13 个个人 provider + `account:bigmodel-team-coding-plan` 的 GLM-5.3、GLM-5.3-Flash） |
+> | `turn --model qwen3.8-flash` | **成功**，3 个流式增量，`inputTokens 20862 / outputTokens 16`，回复 `OK` |
+> | `turn --model GLM-5.3`（套餐路由） | 通道打通、请求到达 `https://open.bigmodel.cn/api/anthropic`，返回业务错误 `1309 您的GLM Coding Plan套餐已到期`（**本机套餐已过期，非插件问题**） |
+>
+> 换机器 / 换账号后套餐可用时，`account:*` 路由就能直接出字；套餐过期时
+> `doctor` / `turn` 会把上游的业务错误原样报出来，不会伪装成协议故障。
+
+
 > **与上游 0.3.x 的差异（v0.4.x，基于实机逆向重写通道层）**
 >
 > 上游假定「DSH 侧注入 Start Plan 账户 + 硬编码模型清单」，实测在 npm 版 CLI
@@ -150,12 +189,15 @@ node bin/dsh-zcode-plan-bridge.js image <file> # 发一张图（消耗额度）
 | 字段 | 默认 | 说明 |
 |------|------|------|
 | `enabled` | `true` | 总开关 |
-| `zcodeCliPath` | 自动探测 | `zcode.cjs` 路径；空 = 从 `ZCODE_CLI_PATH`、桌面客户端常见安装位置、`zcode-app-cli` 全局包依次探测 |
-| `zcodeCliNode` | `node` | 运行 zcode.cjs 的 node 可执行文件 |
+| `zcodeCliPath` | 自动探测 | `zcode.cjs` 路径；空 = 从 `ZCODE_CLI_PATH`、**桌面客户端（注册表发现的安装根）**、常见安装位置、`zcode-app-cli` 全局包依次探测 |
+| `zcodeClientRoot` | 空 | ZCode 桌面客户端安装根（如 `E:\zcode`）；空 = 自动探测（注册表 → 标准安装目录） |
+| `zcodeLaunchMode` | `auto` | `auto` = 找到桌面客户端就用它的启动形态，否则用 node；`desktop` / `node` 强制二选一 |
+| `accountSync` | `true` | 是否把套餐账号 provider（`account:*`）推给桌面版 CLI 并刷新 registry；关掉只剩个人 provider |
+| `zcodeCliNode` | `node` | 运行 zcode.cjs 的 node 可执行文件（仅 node 模式使用；桌面模式用客户端自带的 `ZCode.exe`） |
 | `cliModels` | `[]` | **留空 = 跟随 CLI 上报的清单**（推荐）。填了就等于把清单钉死成这份，只用 `cliModelId` 决定 CLI 侧路由 |
 | `authorizationPolicy` | `deny` | `deny` 会拒绝 ZCode 的权限请求且不提供交互确认；只有你明确接受无人值守工具执行时才设为 `allow-all`。未知 permission/approval 方法始终拒绝 |
 | `cliCwd` | 空 | app-server 会话的工作目录；空 = 用户主目录 |
-| `zcodeDataBaseDir` | 空 | ZCode 数据根目录；空 = 用户主目录（即 `~/.zcode/v2`） |
+| `zcodeDataBaseDir` | 空 | ZCode 数据根目录；空 = 读 `~/.zcode/v2/setting.json` 的 `dataBaseDir`，再兜底用户主目录 |
 | `childEnvAllow` | `[]` | 额外透传给子进程的环境变量名 |
 | `appServerTimeoutMs` | `120000` | 单次 JSON-RPC 请求超时（毫秒） |
 | `zcodeCliTimeoutMs` | `900000` | 单回合超时（毫秒） |
@@ -187,12 +229,18 @@ npm run diagnose   # 诊断命令入口
 ```
 lib/index.js        插件装配：Config schema、provider 注册、模型清单来源决策
 lib/app-server.js   app-server 通道：JSON-RPC 客户端 + LlmAdapter（事件流/回合锁/鉴权）
-lib/zcode-runtime.js CLI 发现、catalogue 归一化与路由选择（只用 Node 内置模块）
+                    + resolveSpawnPlan()：桌面 / node 两种启动形态的唯一决策点
+lib/zcode-runtime.js 桌面客户端发现、数据根解析、内置 release 选择、CLI 启动环境
+                    （只用 Node 内置模块，doctor 在插件加载失败时仍可用）
+lib/account-sync.js 套餐账号 provider 注册（updateAccountConfig + refreshRegistry）
+                    与按路由选择签名凭证（account api-key / zcodejwt）
 lib/messages.js     消息工具：图片物化、对话拍平、泄漏工具调用清洗
-lib/credentials.js  解密 ~/.zcode/v2/credentials.json
-lib/diagnostics.js  五个诊断子命令（doctor/models/protocol/turn/image）
+lib/credentials.js  解密 credentials.json（数据根优先、~/.zcode/v2 兜底）
+lib/diagnostics.js  五个诊断子命令（doctor/models/protocol/turn/image），走同一套启动计划
 bin/                可执行入口
-test/               纯函数单测（node --test）
+test/               纯函数单测（node --test；26 个桌面发现用例 + 原有 27 个）
+docs/               桌面接入设计契约、参考插件模式研究
+verify/             E2E 验证脚本与证据（verify/desktop-e2e.mjs）
 ```
 
 ## 许可
@@ -201,3 +249,4 @@ AGPL-3.0。本仓库是 [kyle123740/dsh-zcode-cli-proxy](https://github.com/kyle
 的衍生版：app-server 通道的逆向结论（回合锁、事件流、鉴权回调）源自上游，
 v0.4.x 依实机重新验证并改写了账号/模型层。历史来源致谢
 [liu5269/zcode2api](https://github.com/liu5269/zcode2api)，其代码已不再随本仓库分发。
+

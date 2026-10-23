@@ -1,7 +1,7 @@
 {
   "name": "dsh-zcode-plan-bridge",
-  "version": "0.4.2",
-  "description": "Exposes the ZCode CLI's bundled agent as a DeepSeek Harness model provider: streaming, image input, per-session reuse, and a model list read from the CLI instead of hard-coded. Derived from kyle123740/dsh-zcode-cli-proxy.",
+  "version": "0.5.0",
+  "description": "Exposes the local ZCode desktop client (or the npm CLI) as a DeepSeek Harness model provider: auto-discovers the client install and data root, launches the bundled agent exactly the way the client does, registers coding-plan account routes, and streams turns with image input and per-session reuse. Derived from kyle123740/dsh-zcode-cli-proxy.",
   "license": "AGPL-3.0",
   "author": "kyle123740",
   "contributors": [
