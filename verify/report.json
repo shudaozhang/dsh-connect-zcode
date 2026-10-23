@@ -1,0 +1,1002 @@
+{
+  "schemaVersion": 1,
+  "harness": "verify/desktop-e2e.mjs",
+  "mode": "turn",
+  "generatedAt": "2026-10-23T14:22:23.306Z",
+  "startedAt": "2026-10-23T14:21:50.939Z",
+  "finishedAt": "2026-10-23T14:22:23.306Z",
+  "durationMs": 32366,
+  "verdict": "PASS",
+  "counts": {
+    "claimsTotal": 6,
+    "claimsPassed": 6,
+    "claimsFailed": 0,
+    "claimsSkipped": 0,
+    "checksTotal": 7,
+    "checksPassed": 7,
+    "checksFailed": 0,
+    "checksSkipped": 0
+  },
+  "repo": {
+    "path": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+    "packageVersion": "0.5.0",
+    "head": "b29a542",
+    "branch": "main",
+    "dirty": true,
+    "statusPorcelain": [
+      "M README.md",
+      " M lib/app-server.js",
+      " M lib/credentials.js",
+      " M lib/diagnostics.js",
+      " M lib/index.js",
+      " M lib/zcode-runtime.js",
+      " M package.json",
+      "?? docs/",
+      "?? lib/account-sync.js",
+      "?? test/desktop-runtime.test.mjs",
+      "?? verify/"
+    ],
+    "fingerprint": {
+      "algorithm": "sha256",
+      "scope": [
+        "lib/",
+        "bin/",
+        "test/",
+        "docs/",
+        "README.md",
+        "package.json"
+      ],
+      "fileCount": 18,
+      "files": [
+        "README.md",
+        "bin/dsh-zcode-plan-bridge.js",
+        "docs/INSTALL.md",
+        "docs/desktop-integration-contract.md",
+        "docs/plugin-patterns.md",
+        "lib/account-sync.js",
+        "lib/app-server.js",
+        "lib/authorization.js",
+        "lib/credentials.js",
+        "lib/diagnostics.js",
+        "lib/index.js",
+        "lib/messages.js",
+        "lib/zcode-runtime.js",
+        "package.json",
+        "test/authorization.test.mjs",
+        "test/desktop-runtime.test.mjs",
+        "test/diagnostics-authorization.test.mjs",
+        "test/runtime.test.mjs"
+      ],
+      "before": "2631193556c82e59f83ac2f348aff094ac116ceab7f772711c07b4360b8ce618",
+      "after": "2631193556c82e59f83ac2f348aff094ac116ceab7f772711c07b4360b8ce618",
+      "stable": true
+    }
+  },
+  "runtime": {
+    "node": "v26.2.0",
+    "platform": "win32",
+    "arch": "x64",
+    "execPath": "E:\\nodejs\\node.exe",
+    "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge"
+  },
+  "cleanEnv": {
+    "policy": "Every subprocess is spawned with an explicit env clone where all ZCODE_* keys (case-insensitive) are deleted.",
+    "parentZcodeVars": [],
+    "strippedFromChildren": []
+  },
+  "claims": [
+    {
+      "id": 1,
+      "title": "doctor in a clean env exits 0 and reports desktop root E:\\zcode 3.16.3 (registry), data root D:\\AI\\zcode (setting) -> D:\\AI\\zcode\\.zcode\\v2, builtin 3.16.3 (runtime), credentials, 15 models",
+      "checks": [
+        "doctor"
+      ],
+      "status": "PASS",
+      "pass": true
+    },
+    {
+      "id": 2,
+      "title": "models in a clean env prints exactly 15 entries across the 6 claimed providers",
+      "checks": [
+        "models"
+      ],
+      "status": "PASS",
+      "pass": true
+    },
+    {
+      "id": 3,
+      "title": "node --test -> 53 pass, 0 fail; npm run typecheck -> exit 0",
+      "checks": [
+        "node-test",
+        "typecheck"
+      ],
+      "status": "PASS",
+      "pass": true
+    },
+    {
+      "id": 4,
+      "title": "import('./lib/index.js') loads against the real peer packages and exports Config, apply, name, resolveOptions, ZcodeAppServerAdapter",
+      "checks": [
+        "plugin-load"
+      ],
+      "status": "PASS",
+      "pass": true
+    },
+    {
+      "id": 5,
+      "title": "a real streamed turn works on a personal provider (qwen3.8-flash): result success, >=1 delta, response contains OK, inputTokens>0",
+      "checks": [
+        "turn-personal"
+      ],
+      "status": "PASS",
+      "pass": true
+    },
+    {
+      "id": 6,
+      "title": "the plan route is wired: turn --model GLM-5.3 reaches https://open.bigmodel.cn/api/anthropic and returns business error 1309 (套餐已到期)",
+      "checks": [
+        "turn-plan"
+      ],
+      "status": "PASS",
+      "pass": true
+    }
+  ],
+  "checks": [
+    {
+      "id": "doctor",
+      "claim": 1,
+      "title": "doctor in a clean env: desktop client E:\\zcode 3.16.3 (registry), data root D:\\AI\\zcode (setting), builtin 3.16.3 (runtime), credentials, 15 models",
+      "command": "node bin/dsh-zcode-plan-bridge.js doctor",
+      "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+      "startedAt": "2026-10-23T14:21:50.944Z",
+      "finishedAt": "2026-10-23T14:21:53.825Z",
+      "durationMs": 2880,
+      "exitCode": 0,
+      "expectedExit": [
+        0
+      ],
+      "signal": null,
+      "timedOut": false,
+      "spawnError": null,
+      "pass": true,
+      "summary": "root E:\\zcode (registry); dataRoot D:\\AI\\zcode\\.zcode\\v2; builtin 3.16.3 (runtime); credentials D:\\AI\\zcode\\.zcode\\v2\\credentials.json; 15 models / 6 providers",
+      "assertions": [
+        {
+          "id": "exit-code",
+          "ok": true,
+          "expected": 0,
+          "actual": 0
+        },
+        {
+          "id": "desktop-root",
+          "ok": true,
+          "expected": "E:\\zcode",
+          "actual": "E:\\zcode"
+        },
+        {
+          "id": "desktop-discovery-source",
+          "ok": true,
+          "expected": "registry",
+          "actual": "registry"
+        },
+        {
+          "id": "desktop-version",
+          "ok": true,
+          "expected": "3.16.3",
+          "actual": "3.16.3"
+        },
+        {
+          "id": "dataBaseDir",
+          "ok": true,
+          "expected": "D:\\AI\\zcode",
+          "actual": "D:\\AI\\zcode"
+        },
+        {
+          "id": "data-root-source",
+          "ok": true,
+          "expected": "setting",
+          "actual": "setting"
+        },
+        {
+          "id": "dataRoot",
+          "ok": true,
+          "expected": "D:\\AI\\zcode\\.zcode\\v2",
+          "actual": "D:\\AI\\zcode\\.zcode\\v2"
+        },
+        {
+          "id": "builtin-release",
+          "ok": true,
+          "expected": "3.16.3 (runtime)",
+          "actual": "3.16.3 (runtime)"
+        },
+        {
+          "id": "credentials-file",
+          "ok": true,
+          "expected": "D:\\AI\\zcode\\.zcode\\v2\\credentials.json",
+          "actual": "D:\\AI\\zcode\\.zcode\\v2\\credentials.json"
+        },
+        {
+          "id": "model-count",
+          "ok": true,
+          "expected": 15,
+          "actual": 15
+        },
+        {
+          "id": "all-preconditions-satisfied",
+          "ok": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "extracted": {
+        "root": "E:\\zcode",
+        "discoverySource": "registry",
+        "version": "3.16.3",
+        "dataBaseDir": "D:\\AI\\zcode",
+        "dataBaseSource": "setting",
+        "dataRoot": "D:\\AI\\zcode\\.zcode\\v2",
+        "builtinRelease": "3.16.3 (runtime)",
+        "builtinFile": "D:\\AI\\zcode\\.zcode\\v2\\runtime\\provider\\windows-x86_64\\3.16.3\\endpoint-78d7c3bef4024722642626fe3669a799\\zcode-builtin.json",
+        "credentialsFile": "D:\\AI\\zcode\\.zcode\\v2\\credentials.json",
+        "tokenLength": 204,
+        "catalog": [
+          {
+            "providerId": "account:bigmodel-team-coding-plan",
+            "modelId": "GLM-5.3",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "account:bigmodel-team-coding-plan",
+            "modelId": "GLM-5.3-Flash",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "new-provider-3",
+            "modelId": "qwen3.8-max-0902",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 131072
+          },
+          {
+            "providerId": "new-provider-3",
+            "modelId": "qwen3.8-flash",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 131072
+          },
+          {
+            "providerId": "new-provider-3",
+            "modelId": "deepseek-v4.1-flash-1017",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 384000
+          },
+          {
+            "providerId": "new-provider-4",
+            "modelId": "gpt-6-astra",
+            "contextWindow": 1050000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "new-provider-4",
+            "modelId": "gpt-6.1-sol",
+            "contextWindow": 1050000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "new-provider-4",
+            "modelId": "gpt-6-luna",
+            "contextWindow": 1050000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-fable-5-1",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-opus-5-5",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-sonnet-5-5",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-haiku-5-5",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000
+          },
+          {
+            "providerId": "deepseek",
+            "modelId": "deepseek-flash",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 384000
+          },
+          {
+            "providerId": "deepseek",
+            "modelId": "deepseek-v4-pro",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 384000
+          },
+          {
+            "providerId": "new-provider",
+            "modelId": "LongCat-2.5-Preview",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000
+          }
+        ],
+        "modelCount": 15,
+        "providerCount": 6,
+        "allPreconditionsSatisfied": true
+      },
+      "notes": [],
+      "stdout": "dsh-zcode-plan-bridge 0.5.0 — local diagnostics\n\n1. Node runtime\n  node v26.2.0 (win32/x64), execPath E:\\nodejs\\node.exe\n2. ZCode desktop client\n  root     E:\\zcode (registry)\n  version  3.16.3\n  launcher E:\\zcode\\ZCode.exe\n  cli      E:\\zcode\\resources\\glm\\zcode.cjs\n3. ZCode data root\n  dataBaseDir D:\\AI\\zcode (setting)\n  dataRoot    D:\\AI\\zcode\\.zcode\\v2\n4. ZCode CLI (zcode.cjs) and launch shape\n  found E:\\zcode\\resources\\glm\\zcode.cjs\n  launch desktop (E:\\zcode\\ZCode.exe E:\\zcode\\resources\\glm\\zcode.cjs app-server --stdio --surface desktop --no-color)\n  env     ELECTRON_RUN_AS_NODE, ZCODE_DATA_BASE_DIR, ZCODE_BUILTIN_PROVIDER_CONFIG_FILE, ZCODE_PERSONAL_PROVIDER_CONFIG_FILE\n5. ZCode builtin runtime (zcode-builtin.json)\n  version 3.16.3 (runtime)\n  file    D:\\AI\\zcode\\.zcode\\v2\\runtime\\provider\\windows-x86_64\\3.16.3\\endpoint-78d7c3bef4024722642626fe3669a799\\zcode-builtin.json\n  registry revision 33\n  providers: account:zai-individual-coding-plan, account:zai-team-coding-plan, account:zai-start-plan, account:bigmodel-individual-coding-plan, account:bigmodel-team-coding-plan, account:bigmodel-start-plan, account:zai-offpeak-idle-plan, account:bigmodel-offpeak-idle-plan, account:zai-highspeed-card, account:bigmodel-highspeed-card\n  configSource revision = zcode-builtin:33:40a2fb0bed717a7d19daa3f6262f0ae28e15882115df3ad96ae198e445598d8f\n6. ZCode credentials\n  file D:\\AI\\zcode\\.zcode\\v2\\credentials.json\n  zcodejwttoken 204 chars (JWT)\n  activeProvider bigmodel\n7. Models the CLI reports to DSH\n  zcode: account provider account:bigmodel-team-coding-plan registered ({\"receivedRevision\":\"dsh-zcode-plan-bridge:account:bigmodel-team-coding-plan:mvl26fhc\",\"providerCount\":1,\"status\":\"received\"})\n  zcode: provider registry refreshed after registering account:bigmodel-team-coding-plan\n  account:bigmodel-team-coding-plan / GLM-5.3 — ctx 1000000, max out 128000, image\n  account:bigmodel-team-coding-plan / GLM-5.3-Flash — ctx 1000000, max out 128000, image\n  new-provider-3 / qwen3.8-max-0902 — ctx 1000000, max out 131072, image\n  new-provider-3 / qwen3.8-flash — ctx 1000000, max out 131072, image\n  new-provider-3 / deepseek-v4.1-flash-1017 — ctx 1000000, max out 384000, image\n  new-provider-4 / gpt-6-astra — ctx 1050000, max out 128000, image\n  new-provider-4 / gpt-6.1-sol — ctx 1050000, max out 128000, image\n  new-provider-4 / gpt-6-luna — ctx 1050000, max out 128000, image\n  new-provider-5 / claude-fable-5-1 — ctx 1000000, max out 128000, image\n  new-provider-5 / claude-opus-5-5 — ctx 1000000, max out 128000, image\n  new-provider-5 / claude-sonnet-5-5 — ctx 1000000, max out 128000, image\n  new-provider-5 / claude-haiku-5-5 — ctx 1000000, max out 128000, image\n  deepseek / deepseek-flash — ctx 1000000, max out 384000, image\n  deepseek / deepseek-v4-pro — ctx 1000000, max out 384000\n  new-provider / LongCat-2.5-Preview — ctx 1000000, max out 128000, image\n\nAll local preconditions satisfied. `turn` verifies the channel end to end (consumes quota).\n",
+      "stderr": ""
+    },
+    {
+      "id": "models",
+      "claim": 2,
+      "title": "models in a clean env: exactly 15 entries across the 6 claimed providers",
+      "command": "node bin/dsh-zcode-plan-bridge.js models",
+      "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+      "startedAt": "2026-10-23T14:21:53.826Z",
+      "finishedAt": "2026-10-23T14:21:56.610Z",
+      "durationMs": 2784,
+      "exitCode": 0,
+      "expectedExit": [
+        0
+      ],
+      "signal": null,
+      "timedOut": false,
+      "spawnError": null,
+      "pass": true,
+      "summary": "15 models / 6 providers: account:bigmodel-team-coding-plan(2), new-provider-3(3), new-provider-4(3), new-provider-5(4), deepseek(2), new-provider(1)",
+      "assertions": [
+        {
+          "id": "exit-code",
+          "ok": true,
+          "expected": 0,
+          "actual": 0
+        },
+        {
+          "id": "entry-count",
+          "ok": true,
+          "expected": 15,
+          "actual": 15
+        },
+        {
+          "id": "provider-count",
+          "ok": true,
+          "expected": 6,
+          "actual": 6
+        },
+        {
+          "id": "provider-ids",
+          "ok": true,
+          "expected": [
+            "account:bigmodel-team-coding-plan",
+            "new-provider-3",
+            "new-provider-4",
+            "new-provider-5",
+            "deepseek",
+            "new-provider"
+          ],
+          "actual": [
+            "account:bigmodel-team-coding-plan",
+            "new-provider-3",
+            "new-provider-4",
+            "new-provider-5",
+            "deepseek",
+            "new-provider"
+          ]
+        },
+        {
+          "id": "no-duplicate-model-ids",
+          "ok": true,
+          "expected": [],
+          "actual": []
+        },
+        {
+          "id": "models:account:bigmodel-team-coding-plan",
+          "ok": true,
+          "expected": [
+            "GLM-5.3",
+            "GLM-5.3-Flash"
+          ],
+          "actual": [
+            "GLM-5.3",
+            "GLM-5.3-Flash"
+          ]
+        },
+        {
+          "id": "models:new-provider-3",
+          "ok": true,
+          "expected": [
+            "qwen3.8-max-0902",
+            "qwen3.8-flash",
+            "deepseek-v4.1-flash-1017"
+          ],
+          "actual": [
+            "qwen3.8-max-0902",
+            "qwen3.8-flash",
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "id": "models:new-provider-4",
+          "ok": true,
+          "expected": [
+            "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6-luna"
+          ],
+          "actual": [
+            "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6-luna"
+          ]
+        },
+        {
+          "id": "models:new-provider-5",
+          "ok": true,
+          "expected": [
+            "claude-fable-5-1",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5"
+          ],
+          "actual": [
+            "claude-fable-5-1",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5"
+          ]
+        },
+        {
+          "id": "models:deepseek",
+          "ok": true,
+          "expected": [
+            "deepseek-flash",
+            "deepseek-v4-pro"
+          ],
+          "actual": [
+            "deepseek-flash",
+            "deepseek-v4-pro"
+          ]
+        },
+        {
+          "id": "models:new-provider",
+          "ok": true,
+          "expected": [
+            "LongCat-2.5-Preview"
+          ],
+          "actual": [
+            "LongCat-2.5-Preview"
+          ]
+        }
+      ],
+      "extracted": {
+        "entryCount": 15,
+        "providerCount": 6,
+        "providers": {
+          "account:bigmodel-team-coding-plan": [
+            "GLM-5.3",
+            "GLM-5.3-Flash"
+          ],
+          "new-provider-3": [
+            "qwen3.8-max-0902",
+            "qwen3.8-flash",
+            "deepseek-v4.1-flash-1017"
+          ],
+          "new-provider-4": [
+            "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6-luna"
+          ],
+          "new-provider-5": [
+            "claude-fable-5-1",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5"
+          ],
+          "deepseek": [
+            "deepseek-flash",
+            "deepseek-v4-pro"
+          ],
+          "new-provider": [
+            "LongCat-2.5-Preview"
+          ]
+        },
+        "entries": [
+          {
+            "providerId": "account:bigmodel-team-coding-plan",
+            "modelId": "GLM-5.3",
+            "label": "GLM-5.3 (BigModel Team Coding Plan)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "account:bigmodel-team-coding-plan",
+            "modelId": "GLM-5.3-Flash",
+            "label": "GLM-5.3-Flash (BigModel Team Coding Plan)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-3",
+            "modelId": "qwen3.8-max-0902",
+            "label": "qwen3.8-max-0902 (qwen-tt)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 131072,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-3",
+            "modelId": "qwen3.8-flash",
+            "label": "qwen3.8-flash (qwen-tt)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 131072,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-3",
+            "modelId": "deepseek-v4.1-flash-1017",
+            "label": "deepseek-v4.1-flash-1017 (qwen-tt)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 384000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-4",
+            "modelId": "gpt-6-astra",
+            "label": "gpt-6-astra (sanqian-gpt)",
+            "contextWindow": 1050000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-4",
+            "modelId": "gpt-6.1-sol",
+            "label": "gpt-6.1-sol (sanqian-gpt)",
+            "contextWindow": 1050000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-4",
+            "modelId": "gpt-6-luna",
+            "label": "gpt-6-luna (sanqian-gpt)",
+            "contextWindow": 1050000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-fable-5-1",
+            "label": "claude-fable-5-1 (sanqian-cc)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-opus-5-5",
+            "label": "claude-opus-5-5 (sanqian-cc)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-sonnet-5-5",
+            "label": "claude-sonnet-5-5 (sanqian-cc)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "new-provider-5",
+            "modelId": "claude-haiku-5-5",
+            "label": "claude-haiku-5-5 (sanqian-cc)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "image": true
+          },
+          {
+            "providerId": "deepseek",
+            "modelId": "deepseek-flash",
+            "label": "deepseek-flash (DeepSeek)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 384000,
+            "image": true
+          },
+          {
+            "providerId": "deepseek",
+            "modelId": "deepseek-v4-pro",
+            "label": "deepseek-v4-pro (DeepSeek)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 384000,
+            "image": false
+          },
+          {
+            "providerId": "new-provider",
+            "modelId": "LongCat-2.5-Preview",
+            "label": "LongCat-2.5-Preview (longcat)",
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "image": true
+          }
+        ]
+      },
+      "notes": [],
+      "stdout": "  zcode: account provider account:bigmodel-team-coding-plan registered ({\"receivedRevision\":\"dsh-zcode-plan-bridge:account:bigmodel-team-coding-plan:mvl26hpk\",\"providerCount\":1,\"status\":\"received\"})\n  zcode: provider registry refreshed after registering account:bigmodel-team-coding-plan\nmodels reported by E:\\zcode\\resources\\glm\\zcode.cjs (desktop launch)\n\naccount:bigmodel-team-coding-plan / GLM-5.3\n  label     GLM-5.3 (BigModel Team Coding Plan)\n  context   1000000 tokens\n  max out   128000 tokens\n  reasoning low / high / max (default max)\n  image     supported\naccount:bigmodel-team-coding-plan / GLM-5.3-Flash\n  label     GLM-5.3-Flash (BigModel Team Coding Plan)\n  context   1000000 tokens\n  max out   128000 tokens\n  reasoning low / high / max (default max)\n  image     supported\nnew-provider-3 / qwen3.8-max-0902\n  label     qwen3.8-max-0902 (qwen-tt)\n  context   1000000 tokens\n  max out   131072 tokens\n  reasoning low / medium / xhigh (default xhigh)\n  image     supported\nnew-provider-3 / qwen3.8-flash\n  label     qwen3.8-flash (qwen-tt)\n  context   1000000 tokens\n  max out   131072 tokens\n  reasoning low / medium / xhigh (default xhigh)\n  image     supported\nnew-provider-3 / deepseek-v4.1-flash-1017\n  label     deepseek-v4.1-flash-1017 (qwen-tt)\n  context   1000000 tokens\n  max out   384000 tokens\n  reasoning disabled / low / high / max (default max)\n  image     supported\nnew-provider-4 / gpt-6-astra\n  label     gpt-6-astra (sanqian-gpt)\n  context   1050000 tokens\n  max out   128000 tokens\n  reasoning low / medium / high / xhigh / max (default max)\n  image     supported\nnew-provider-4 / gpt-6.1-sol\n  label     gpt-6.1-sol (sanqian-gpt)\n  context   1050000 tokens\n  max out   128000 tokens\n  reasoning disabled / enabled (default enabled)\n  image     supported\nnew-provider-4 / gpt-6-luna\n  label     gpt-6-luna (sanqian-gpt)\n  context   1050000 tokens\n  max out   128000 tokens\n  reasoning disabled / enabled (default enabled)\n  image     supported\nnew-provider-5 / claude-fable-5-1\n  label     claude-fable-5-1 (sanqian-cc)\n  context   1000000 tokens\n  max out   128000 tokens\n  reasoning low / medium / high / xhigh / max (default max)\n  image     supported\nnew-provider-5 / claude-opus-5-5\n  label     claude-opus-5-5 (sanqian-cc)\n  context   1000000 tokens\n  max out   128000 tokens\n  reasoning low / medium / high / xhigh / max (default max)\n  image     supported\nnew-provider-5 / claude-sonnet-5-5\n  label     claude-sonnet-5-5 (sanqian-cc)\n  context   1000000 tokens\n  max out   128000 tokens\n  reasoning low / medium / high / xhigh / max (default max)\n  image     supported\nnew-provider-5 / claude-haiku-5-5\n  label     claude-haiku-5-5 (sanqian-cc)\n  context   1000000 tokens\n  max out   128000 tokens\n  reasoning disabled / enabled (default enabled)\n  image     supported\ndeepseek / deepseek-flash\n  label     deepseek-flash (DeepSeek)\n  context   1000000 tokens\n  max out   384000 tokens\n  reasoning disabled / low / high / max (default max)\n  image     supported\ndeepseek / deepseek-v4-pro\n  label     deepseek-v4-pro (DeepSeek)\n  context   1000000 tokens\n  max out   384000 tokens\n  reasoning disabled / low / high / max (default max)\n  image     not supported\nnew-provider / LongCat-2.5-Preview\n  label     LongCat-2.5-Preview (longcat)\n  context   1000000 tokens\n  max out   128000 tokens\n  reasoning disabled / enabled (default enabled)\n  image     supported\n\nDSH model ids are the modelIds above (15 after collapsing duplicate providers).\n",
+      "stderr": ""
+    },
+    {
+      "id": "node-test",
+      "claim": 3,
+      "title": "node --test: 53 pass, 0 fail",
+      "command": "node --test",
+      "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+      "startedAt": "2026-10-23T14:21:56.611Z",
+      "finishedAt": "2026-10-23T14:21:57.624Z",
+      "durationMs": 1013,
+      "exitCode": 0,
+      "expectedExit": [
+        0
+      ],
+      "signal": null,
+      "timedOut": false,
+      "spawnError": null,
+      "pass": true,
+      "summary": "53 pass / 0 fail (tests 53)",
+      "assertions": [
+        {
+          "id": "exit-code",
+          "ok": true,
+          "expected": 0,
+          "actual": 0
+        },
+        {
+          "id": "pass-count",
+          "ok": true,
+          "expected": 53,
+          "actual": 53
+        },
+        {
+          "id": "fail-count",
+          "ok": true,
+          "expected": 0,
+          "actual": 0
+        }
+      ],
+      "extracted": {
+        "tests": 53,
+        "pass": 53,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "notes": [],
+      "stdout": "✔ authorization policy defaults to deny and accepts explicit full-auto only (769.2719ms)\n✔ default policy denies a tool permission request (0.5181ms)\n✔ explicit full-auto policy allows only the known permission method (0.158ms)\n✔ unknown permission methods fail closed under every policy (0.121ms)\n✔ unrelated methods are not classified as permission requests (0.0666ms)\n✔ both policies retain build mode so authorization requests reach the bridge (0.0729ms)\n✔ a permission mode switch failure stops the turn under either policy (0.5461ms)\n✔ parseUninstallRegistryOutput reads the ZCode entry, ignoring other apps (1.6831ms)\n✔ parseUninstallRegistryOutput prefers InstallLocation and handles unquoted commands (0.2329ms)\n✔ parseUninstallRegistryOutput falls back to the DisplayName version (0.2156ms)\n✔ parseUninstallRegistryOutput returns nothing for empty, garbage or unrelated output (0.1675ms)\n✔ desktopCandidatesFromRegistryQuery parses the injected output without spawning (0.3731ms)\n✔ desktopCandidatesFromRegistryQuery degrades to no candidates when the query fails (0.109ms)\n✔ inspectDesktopRoot describes a complete install (2.6465ms)\n✔ inspectDesktopRoot rejects missing and partial installs (2.5862ms)\n✔ locateZcodeDesktop honours a configured root and never queries the registry (2.2946ms)\n✔ locateZcodeDesktop finds a custom root through the registry (3.7666ms)\n✔ locateZcodeDesktop returns undefined when nothing is installed (0.7125ms)\n✔ locateZcodeDesktop returns undefined for a configured root that does not exist (0.1725ms)\n✔ resolveZcodeDataRoot reads dataBaseDir from the desktop setting file (10.2015ms)\n✔ resolveZcodeDataRoot prefers a configured dataBaseDir over the setting file (1.2469ms)\n✔ resolveZcodeDataRoot falls back to the home directory (0.4657ms)\n✔ resolveZcodeDataRoot ignores a malformed or empty setting file (4.9442ms)\n✔ resolveZcodeDataRoot resolves a relative setting path against the home directory (2.6806ms)\n✔ resolveDesktopBuiltinConfig prefers the release matching the desktop version (6.736ms)\n✔ resolveDesktopBuiltinConfig falls back to the newest downloaded release (6.0993ms)\n✔ resolveDesktopBuiltinConfig falls back to the bundled release (2.4781ms)\n✔ resolveDesktopBuiltinConfig returns undefined when neither source exists (1.482ms)\n✔ desktopCliEnv emits the measured desktop environment (4.5462ms)\n✔ desktopCliEnv always forces ELECTRON_RUN_AS_NODE to 1 (2.7513ms)\n✔ desktopCliEnv omits the personal provider config when it does not exist (2.8422ms)\n✔ desktopCliEnv is empty without a desktop install (0.0925ms)\n✔ locateZcodeCli still honours an explicit configured path (0.094ms)\n✔ the diagnostics help advertises the tool opt-in (0.6439ms)\n✔ every documented command is listed exactly once (0.6167ms)\n✔ the commands that can run tools are the ones that start a turn (0.1378ms)\n✔ normalizeCatalogEntry reads the fields the CLI actually sends (1.4106ms)\n✔ normalizeCatalogEntry rejects an entry with no ref (0.1377ms)\n✔ normalizeCatalogEntry treats absent image support as unsupported (0.1841ms)\n✔ normalizeCatalogEntry drops non-positive capacities instead of trusting them (0.7078ms)\n✔ readModelCatalog reads settings.model.available, not a top-level list (0.1922ms)\n✔ readModelCatalog tolerates a malformed create response (0.102ms)\n✔ readCurrentModel reports the session model or undefined (0.1463ms)\n✔ collapseCatalog keeps one entry per model id, preferring the account provider (0.2154ms)\n✔ pickCatalogEntry matches a bare model id and a provider-qualified one (0.1986ms)\n✔ pickCatalogEntry with an empty model returns the preferred route (0.1668ms)\n✔ decryptValue round-trips an enc:v1 payload (0.9872ms)\n✔ decryptValue passes plaintext through and rejects broken envelopes (0.5561ms)\n✔ readZaiPlanAuth prefers the plan token and falls back to the oauth one (0.0837ms)\n✔ sanitizeLeakedCalls replaces leaked tool-call markup with an instruction (0.5823ms)\n✔ sanitizeLeakedCalls leaves ordinary text untouched (0.0775ms)\n✔ flattenConversation labels each role and renders images as placeholders (0.3285ms)\n✔ lastUserText returns the newest non-empty user turn (0.1086ms)\nℹ tests 53\nℹ suites 0\nℹ pass 53\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 911.8926\n",
+      "stderr": ""
+    },
+    {
+      "id": "typecheck",
+      "claim": 3,
+      "title": "npm run typecheck (tsc -p tsconfig.json) exits 0",
+      "command": "npm run typecheck",
+      "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+      "startedAt": "2026-10-23T14:21:57.624Z",
+      "finishedAt": "2026-10-23T14:21:58.899Z",
+      "durationMs": 1274,
+      "exitCode": 0,
+      "expectedExit": [
+        0
+      ],
+      "signal": null,
+      "timedOut": false,
+      "spawnError": null,
+      "pass": true,
+      "summary": "tsc exit 0",
+      "assertions": [
+        {
+          "id": "exit-code",
+          "ok": true,
+          "expected": 0,
+          "actual": 0
+        }
+      ],
+      "extracted": {
+        "exitCode": 0
+      },
+      "notes": [],
+      "stdout": "\n> dsh-zcode-plan-bridge@0.5.0 typecheck\n> tsc -p tsconfig.json\n\n",
+      "stderr": ""
+    },
+    {
+      "id": "plugin-load",
+      "claim": 4,
+      "title": "import('./lib/index.js') against the real node_modules peer packages exports Config/apply/name/resolveOptions/ZcodeAppServerAdapter",
+      "command": "node -e \"import('./lib/index.js').then(m => { /* inspect exports */ })\"",
+      "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+      "startedAt": "2026-10-23T14:21:58.900Z",
+      "finishedAt": "2026-10-23T14:21:59.047Z",
+      "durationMs": 148,
+      "exitCode": 0,
+      "expectedExit": [
+        0
+      ],
+      "signal": null,
+      "timedOut": false,
+      "spawnError": null,
+      "pass": true,
+      "summary": "exports Config, FALLBACK_CLI_MODELS, ZcodeAppServerAdapter, apply, default, inject, name, pluginDir, resolveOptions; peers @deepseek-ai/cordis@4.0.5, @deepseek-ai/schemastery@3.18.5, @deepseek-ai/dsh-llm@0.2.1-rc.2",
+      "assertions": [
+        {
+          "id": "exit-code",
+          "ok": true,
+          "expected": 0,
+          "actual": 0
+        },
+        {
+          "id": "export:Config",
+          "ok": true,
+          "expected": "function",
+          "actual": "function"
+        },
+        {
+          "id": "export:apply",
+          "ok": true,
+          "expected": "function",
+          "actual": "function"
+        },
+        {
+          "id": "export:name",
+          "ok": true,
+          "expected": "string",
+          "actual": "string"
+        },
+        {
+          "id": "export:resolveOptions",
+          "ok": true,
+          "expected": "function",
+          "actual": "function"
+        },
+        {
+          "id": "export:ZcodeAppServerAdapter",
+          "ok": true,
+          "expected": "function",
+          "actual": "function"
+        },
+        {
+          "id": "export-name-value",
+          "ok": true,
+          "expected": "dsh-zcode-plan-bridge",
+          "actual": "dsh-zcode-plan-bridge"
+        }
+      ],
+      "extracted": {
+        "exports": [
+          "Config",
+          "FALLBACK_CLI_MODELS",
+          "ZcodeAppServerAdapter",
+          "apply",
+          "default",
+          "inject",
+          "name",
+          "pluginDir",
+          "resolveOptions"
+        ],
+        "types": {
+          "Config": "function",
+          "apply": "function",
+          "name": "string",
+          "resolveOptions": "function",
+          "ZcodeAppServerAdapter": "function"
+        },
+        "name": "dsh-zcode-plan-bridge",
+        "defaultExport": [
+          "Config",
+          "apply",
+          "inject",
+          "name"
+        ],
+        "peerVersions": {
+          "@deepseek-ai/cordis": "4.0.5",
+          "@deepseek-ai/schemastery": "3.18.5",
+          "@deepseek-ai/dsh-llm": "0.2.1-rc.2"
+        }
+      },
+      "notes": [],
+      "stdout": "VERIFY_EXPORTS_JSON {\"exports\":[\"Config\",\"FALLBACK_CLI_MODELS\",\"ZcodeAppServerAdapter\",\"apply\",\"default\",\"inject\",\"name\",\"pluginDir\",\"resolveOptions\"],\"types\":{\"Config\":\"function\",\"apply\":\"function\",\"name\":\"string\",\"resolveOptions\":\"function\",\"ZcodeAppServerAdapter\":\"function\"},\"name\":\"dsh-zcode-plan-bridge\",\"defaultExport\":[\"Config\",\"apply\",\"inject\",\"name\"]}\n",
+      "stderr": ""
+    },
+    {
+      "id": "turn-personal",
+      "claim": 5,
+      "title": "real streamed turn on a personal provider: qwen3.8-flash",
+      "command": "node bin/dsh-zcode-plan-bridge.js turn \"Reply with exactly: OK\" --model qwen3.8-flash",
+      "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+      "startedAt": "2026-10-23T14:21:59.050Z",
+      "finishedAt": "2026-10-23T14:22:12.669Z",
+      "durationMs": 13620,
+      "exitCode": 0,
+      "expectedExit": [
+        0
+      ],
+      "signal": null,
+      "timedOut": false,
+      "spawnError": null,
+      "pass": true,
+      "summary": "result success; 4 streaming delta(s); route new-provider-3/qwen3.8-flash; usage inputTokens 20862; response \"OK\"",
+      "assertions": [
+        {
+          "id": "exit-code",
+          "ok": true,
+          "expected": 0,
+          "actual": 0
+        },
+        {
+          "id": "result-success",
+          "ok": true,
+          "expected": "success",
+          "actual": "success"
+        },
+        {
+          "id": "streaming-deltas>=1",
+          "ok": true,
+          "expected": ">= 1",
+          "actual": 4
+        },
+        {
+          "id": "response-contains-OK",
+          "ok": true,
+          "expected": "response includes \"OK\"",
+          "actual": "OK"
+        },
+        {
+          "id": "usage-inputTokens>0",
+          "ok": true,
+          "expected": "inputTokens > 0",
+          "actual": 20862
+        },
+        {
+          "id": "personal-provider",
+          "ok": true,
+          "expected": "non-account provider",
+          "actual": "new-provider-3"
+        },
+        {
+          "id": "model-is-qwen3.8-flash",
+          "ok": true,
+          "expected": "qwen3.8-flash",
+          "actual": "qwen3.8-flash"
+        }
+      ],
+      "extracted": {
+        "resultType": "success",
+        "streamingDeltas": 4,
+        "providerId": "new-provider-3",
+        "route": "new-provider-3/qwen3.8-flash",
+        "observedModelId": "qwen3.8-flash",
+        "reasoningLevel": "xhigh",
+        "baseURL": "https://ws-kv33mm6dt983erxg.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        "usage": {
+          "source": "provider",
+          "modelRequestCount": 1,
+          "inputTokens": 20862,
+          "outputTokens": 27,
+          "totalTokens": 20889,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 23,
+          "webFetchRequests": 0,
+          "webSearchRequests": 0
+        },
+        "usageRaw": "{\"source\":\"provider\",\"modelRequestCount\":1,\"inputTokens\":20862,\"outputTokens\":27,\"totalTokens\":20889,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"reasoningTokens\":23,\"webFetchRequests\":0,\"webSearchRequests\":0}",
+        "response": "OK"
+      },
+      "notes": [],
+      "stdout": "app-server E:\\zcode\\resources\\glm\\zcode.cjs (desktop launch)\n  zcode: account provider account:bigmodel-team-coding-plan registered ({\"receivedRevision\":\"dsh-zcode-plan-bridge:account:bigmodel-team-coding-plan:mvl26nog\",\"providerCount\":1,\"status\":\"received\"})\n  zcode: provider registry refreshed after registering account:bigmodel-team-coding-plan\n  session sess_cf4fa70c-6f7c-411d-aabe-4df5e7aaea8f\n  model new-provider-3/qwen3.8-flash (reasoning xhigh)\n\nsending: Reply with exactly: OK\nresult success, 4 streaming deltas\n  providerId new-provider-3\n  model      qwen3.8-flash\n  baseURL    https://ws-kv33mm6dt983erxg.cn-beijing.maas.aliyuncs.com/compatible-mode/v1\n  usage      {\"source\":\"provider\",\"modelRequestCount\":1,\"inputTokens\":20862,\"outputTokens\":27,\"totalTokens\":20889,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"reasoningTokens\":23,\"webFetchRequests\":0,\"webSearchRequests\":0}\nresponse:\n  OK\n",
+      "stderr": ""
+    },
+    {
+      "id": "turn-plan",
+      "claim": 6,
+      "title": "coding-plan route wiring: GLM-5.3 reaches https://open.bigmodel.cn/api/anthropic and returns business error 1309 (套餐已到期)",
+      "command": "node bin/dsh-zcode-plan-bridge.js turn \"Reply with exactly: OK\" --model GLM-5.3",
+      "cwd": "D:\\AI\\dsh\\work\\zcode-plan-bridge",
+      "startedAt": "2026-10-23T14:22:12.672Z",
+      "finishedAt": "2026-10-23T14:22:23.297Z",
+      "durationMs": 10625,
+      "exitCode": 1,
+      "expectedExit": [
+        1
+      ],
+      "signal": null,
+      "timedOut": false,
+      "spawnError": null,
+      "pass": true,
+      "summary": "result failed (exit 1); route account:bigmodel-team-coding-plan/GLM-5.3; baseURL https://open.bigmodel.cn/api/anthropic; business error 1309; upstream message \"[1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023222222d4ef01fa25e343e3]\"",
+      "assertions": [
+        {
+          "id": "exit-code",
+          "ok": true,
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "id": "result-not-success",
+          "ok": true,
+          "expected": "not success",
+          "actual": "failed"
+        },
+        {
+          "id": "account-plan-route",
+          "ok": true,
+          "expected": "account:* provider",
+          "actual": "account:bigmodel-team-coding-plan"
+        },
+        {
+          "id": "model-is-GLM-5.3",
+          "ok": true,
+          "expected": "GLM-5.3",
+          "actual": "GLM-5.3"
+        },
+        {
+          "id": "reaches-upstream-url",
+          "ok": true,
+          "expected": "https://open.bigmodel.cn/api/anthropic",
+          "actual": "https://open.bigmodel.cn/api/anthropic"
+        },
+        {
+          "id": "business-code-1309",
+          "ok": true,
+          "expected": "1309",
+          "actual": "1309"
+        },
+        {
+          "id": "expired-plan-message",
+          "ok": true,
+          "expected": "套餐已到期",
+          "actual": "[1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023222222d4ef01fa25e343e3]"
+        }
+      ],
+      "extracted": {
+        "resultType": "failed",
+        "providerId": "account:bigmodel-team-coding-plan",
+        "route": "account:bigmodel-team-coding-plan/GLM-5.3",
+        "baseURL": "https://open.bigmodel.cn/api/anthropic",
+        "usage": null,
+        "response": "[1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023222222d4ef01fa25e343e3]",
+        "upstreamMessageLines": [
+          "  [1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023222222d4ef01fa25e343e3]"
+        ],
+        "businessCode": "1309",
+        "reachedUpstream": true
+      },
+      "notes": [
+        "A non-zero exit here is the expected outcome: the route works but the account plan is expired upstream."
+      ],
+      "stdout": "app-server E:\\zcode\\resources\\glm\\zcode.cjs (desktop launch)\n  zcode: account provider account:bigmodel-team-coding-plan registered ({\"receivedRevision\":\"dsh-zcode-plan-bridge:account:bigmodel-team-coding-plan:mvl26y72\",\"providerCount\":1,\"status\":\"received\"})\n  zcode: provider registry refreshed after registering account:bigmodel-team-coding-plan\n  session sess_c0a5b84a-5e29-4fc7-87d7-c0b0985b1d55\n  model account:bigmodel-team-coding-plan/GLM-5.3 (reasoning max)\n\nsending: Reply with exactly: OK\nresult failed, 0 streaming deltas\n  providerId account:bigmodel-team-coding-plan\n  model      GLM-5.3\n  baseURL    https://open.bigmodel.cn/api/anthropic\nresponse:\n  [1309][您的GLM Coding Plan套餐已到期，暂无法使用，前往官方续订后即可恢复https://bigmodel.cn/claude-code。][20261023222222d4ef01fa25e343e3]\n",
+      "stderr": ""
+    }
+  ],
+  "notes": [
+    "Claims 1–4 are offline checks. Claims 5–6 run one real streamed turn each and are only executed with `--turn`.",
+    "The turn command prints the model response truncated to 600 characters (a CLI diagnostics cap); the assertions only need the first bytes (\"OK\") and the upstream business error text.",
+    "The account's coding-plan subscription is expired on this machine, so claim 6 is expected to exit non-zero: PASS means the request really reached the plan upstream URL and came back with business error 1309, i.e. the route wiring works.",
+    "docs/desktop-integration-contract.md §4/§9 still records the pre-account-overlay count (13 models / 5 providers); README v0.5.0 and these claims expect the final 15 / 6 (13 personal + account:bigmodel-team-coding-plan GLM-5.3, GLM-5.3-Flash). The measured output is 15 / 6, matching README v0.5.0.",
+    "Report produced by an independent verifier; only verify/ was written, no source files were modified."
+  ]
+}
