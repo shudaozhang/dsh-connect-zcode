@@ -5,15 +5,16 @@
   "license": "AGPL-3.0",
   "author": "kyle123740",
   "contributors": [
-    "tangyixiao"
+    "tangyixiao",
+    "shudaozhang"
   ],
-  "homepage": "https://github.com/tangyixiao/dsh-connect-zcode#readme",
+  "homepage": "https://github.com/shudaozhang/dsh-connect-zcode#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tangyixiao/dsh-connect-zcode.git"
+    "url": "git+https://github.com/shudaozhang/dsh-connect-zcode.git"
   },
   "bugs": {
-    "url": "https://github.com/tangyixiao/dsh-connect-zcode/issues"
+    "url": "https://github.com/shudaozhang/dsh-connect-zcode/issues"
   },
   "keywords": [
     "deepseek-harness",

@@ -7,7 +7,7 @@ provider `zcode-cli` 背后是一个常驻的 `zcode app-server` 会话（stdio 
 再把该账号能服务的模型清单转述给 DSH —— **烧的是 ZCode 账号的额度，不需要 API Key，也不需要自建网关。**
 模型可以按需勾选启用哪些（见「选择启用哪些模型」）。
 
-本仓库：<https://github.com/tangyixiao/dsh-connect-zcode> ·
+本仓库：<https://github.com/shudaozhang/dsh-connect-zcode> ·
 上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0） ·
 前身：`dsh-zcode-plan-bridge`（v0.6.0 起更名为 `dsh-connect-zcode`）
 
