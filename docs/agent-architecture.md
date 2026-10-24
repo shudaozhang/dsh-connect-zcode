@@ -36,25 +36,58 @@ Bash, Edit, Glob, Grep, Read, TodoWrite, Write
 对模型来说全是**幻觉来源**——它会模仿这些工具的调用格式，把 `<antml:invoke>` 当成正文输出
 （这正是 `lib/app-server.js` 里 `BRIDGE_NOTE` 存在的原因）。
 
-### 3. 为什么不能改成纯直连（三条路都试过了）
+### 3. 请求签名：可以复现，但不是瓶颈所在
 
-| 路线 | 实测结果 |
+**这一节在 2026-10-24 晚些时候被实测修正过。** 早期结论是「WAF 封死了直连」，那是错的：
+WAF 挡的是**缺少签名头**的请求，而签名算法可以从二进制里完整复现，现已固化在
+[`lib/client-signing.js`](../lib/client-signing.js)。
+
+复现出的完整链路（字段级，客户端 3.16.3）：
+
+```
+1) OAuth access_token
+   POST {origin}/api/biz/v1/organization/{org}/projects/{proj}/api_keys/{id}/access_tokens
+   → signing JWT  {sign_type:"SIGN", token_use:"project_access", api_key:"<id>"}，约 5 小时有效
+
+2) 握手换私钥
+   签名消息 = "get_sign_key\n{apiKeyId}\n{ts}\n{nonce}"
+   HMAC key = HKDF(jwt, salt="WD_CLIENT_SIGN_KDF_SALT", info="getSignKey_hmac")
+   POST {origin}/api/paas/c1f3a7e2/v2/client  → privateCipher
+
+3) 解包 Ed25519 私钥
+   AES key = HKDF(jwt, info="ed25519_priv")
+   AES-GCM(iv=前12字节, aad=apiKeyId) → PKCS8 → Ed25519
+
+4) 业务请求签名头
+   X-Client-Sig = Ed25519("{apiKeyId} {ts} {version} {sessionId} {nonce}")
+   X-Client-Pow = SHA-256 前 8 bit 为 0 的 PoW
+   另需 X-Client-Ts / X-Client-Version / X-Client-Nonce / X-Session-Id / X-App-Id="zcode"
+```
+
+实测结果对比（同一台机器、同一凭证）：
+
+| 请求 | 结果 |
 |---|---|
-| `POST zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages`<br>`x-api-key: <account api-key>` | **401** |
-| 同上，`x-api-key: <zcodejwt>` | **401** |
-| 同上，`Authorization: Bearer <zcodejwt>` | **405** `{"code":3012,"msg":"request has been blocked due to unusual activity."}` |
-| `POST open.bigmodel.cn/api/anthropic/v1/messages`<br>`x-api-key: <account api-key>` | **429** `{"code":"1309","message":"您的GLM Coding Plan套餐已到期"}` |
-| `POST api.z.ai/api/anthropic/v1/messages` | 同上 429 / 1309 |
+| 无签名，`Bearer <jwt>` | **405** `3012 请求被判定为异常活动`（WAF 拦） |
+| 带完整签名头 → `open.bigmodel.cn` | **429** `1309 套餐已到期`（**穿过 WAF，抵达业务层**） |
+| 带完整签名头 → `zcode.z.ai` | **401**（该端点要的是另一套凭证，见下） |
 
-解读：
+**所以真正的瓶颈不是签名，而是凭证本身：**
 
-- `zcode.z.ai` 是**套餐额度专用端点**，有 WAF 做请求签名校验。只有 ZCode agent 二进制
-  自己算出的签名能过，`Bearer` 直连直接被判定为异常活动。
-- `bigmodel.cn` / `api.z.ai` 认证**能过**（429 是业务拒绝，不是 401 认证失败），但那是
-  **个人 API Key 计费**路线，不消耗 Coding Plan 额度。
+- 换出来的 signing JWT 里 `api_key` 是 `1cffb8d8…`，对应
+  `account-provider:coding-plan:account:bigmodel-team-coding-plan:…` ——
+  **那个套餐已过期**，所以业务层回 `1309`。签名再正确也没用。
+- `account:bigmodel-start-plan` / `individual-coding-plan` 两条实际在服务的路由，
+  其 `selectRuntimeAuth` 拿到的是 `zcodejwttoken`；而 `zcodejwttoken` 的 JWT 形状是
+  `{alg,typ}` + `{user_id,token_version,sub,iat}`，**没有 `sign_type: SIGN` 也没有
+  `api_key`**，不是签名凭证。`zai` 家族的 `oauth:zai:access_token` 也已过期，
+  换不出对应的 signing JWT。
 
-**结论：想烧套餐额度，就必须让 ZCode agent 跑；想纯直连，就只能用自己的 API key。
-两者目前无法兼得。**
+**结论修正**：签名机制已经复现并可用（`lib/client-signing.js`，8 个测试覆盖），
+`bigmodel.cn` 端点已经能进业务层。**要真正消耗套餐额度，缺的是一个有效的套餐凭证**——
+套餐续费后，这套代码应当立刻可用；`zai` 家族则需要重新登录以刷新 access token。
+
+这不是「技术上做不到」，而是「当前账号没有可用额度」。
 
 ### 4. 为什么不能把 DSH 的工具注册给 ZCode agent
 

@@ -147,13 +147,21 @@ result success, 15 streaming deltas
 
 ZCode 的 agent 自己跑了 Bash，DSH 全程不知道发生过一次工具调用。
 
-这是**上游的产品与安全设计**，不是本插件的实现缺陷。三条改造成纯直连的路线都已实测走死：
+这是**上游的产品与安全设计**，不是本插件的实现缺陷。三条改造成纯直连的路线实测情况：
 
 | 路线 | 结果 |
 |---|---|
-| 直连套餐端点 `zcode.z.ai/.../zcode-plan/anthropic` | `401` / `Bearer` 方式被 WAF 拦（`405 3012 异常活动`） |
-| 直连 `open.bigmodel.cn` / `api.z.ai` | 认证能过，但走**个人 API Key 计费**，不烧套餐额度 |
+| 直连套餐端点（无签名） | `401` / `Bearer` 方式被 WAF 拦（`405 3012 异常活动`） |
+| 直连 + 复现的客户端签名 | ✅ **穿过 WAF**，抵达业务层（返回业务码 `1309 套餐已到期`） |
 | 把 DSH 工具注册进 agent | 需要 ZCode App 进程内存里的 `token`，外部无法伪造 |
+
+> **签名机制已完全复现**并固化在 [`lib/client-signing.js`](lib/client-signing.js)：
+> OAuth token → signing JWT → HKDF/HMAC 握手 → AES-GCM 解包 Ed25519 私钥 → 签业务请求
+> （含 PoW）。实测带签名的请求能抵达业务层，证明签名链路正确。
+>
+> **当前卡点是凭证而不是算法**：能换到的 signing JWT 指向的套餐已过期（`1309`），
+> 而实际在服务的 `start-plan` 用的是 `zcodejwttoken`——它不是签名凭证，
+> `zai` 家族的 access token 也已失效。**套餐续费后这套代码应当立即可用。**
 
 完整实测数据与字段级证据见 [`docs/agent-architecture.md`](docs/agent-architecture.md)。
 

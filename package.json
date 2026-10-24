@@ -40,7 +40,8 @@
       "default": "./lib/index.js"
     },
     "./client": "./lib/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client-signing": "./lib/client-signing.js"
   },
   "dsh": {
     "bundle": {
