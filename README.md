@@ -74,24 +74,24 @@ DSH Agent ──► provider "zcode-cli" ──► ZcodeAppServerAdapter
 
 **前置条件**：本机已安装并登录 **ZCode 桌面客户端**（有可用额度的账号）。没有客户端时插件不会注册 provider。
 
-### 方式一：DSH 插件市场（上架后可用）
-
-DSH → 插件 → 发现 → 搜索 `dsh-connect-zcode` → 安装 → 重启 DSH。
-
-### 方式二：命令行安装
-
-```powershell
-dsh plugin --profile <你的 profile> add dsh-connect-zcode
-```
-
-profile 名通常是 `desktop` 或 `web`。用 npm 包名安装时，需要该包已发布到 npm；
-想直接从 GitHub 安装，把上面的包名换成仓库地址：
+### 方式一：直接从 GitHub 安装（当前推荐）
 
 ```powershell
 dsh plugin --profile desktop add shudaozhang/dsh-connect-zcode
 ```
 
-> 官方 DSH Desktop 应用推荐用界面里的 **设置 → 插件** 安装，而不是命令行。
+`--profile` 换成你的 profile 名（通常是 `desktop` 或 `web`）。等效的 pnpm 写法：
+
+```powershell
+pnpm add github:shudaozhang/dsh-connect-zcode
+```
+
+> 本仓库暂未发布到 npm，所以**不要**用 `add dsh-connect-zcode`（会 404）。
+> GitHub 安装已实测通过：`+ dsh-connect-zcode 0.6.1`。
+
+### 方式二：DSH 插件市场（上架后可用）
+
+DSH → 插件 → 发现 → 搜索 `dsh-connect-zcode` → 安装 → 重启 DSH。
 
 ### 方式三：本地目录装配（开发用）
 
