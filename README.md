@@ -129,6 +129,37 @@ DSH 设置 → 模型（Models）→ 提供方 **zcode** → 选模型。
 - 会话标题这类辅助调用在本地生成，不消耗额度
 - 前置条件：本机能跑起 ZCode CLI，且它已登录有额度的账号
 
+## 它不是「模型直连」——先理解这一点
+
+> **你的 DSH 会话里，真正干活的是 ZCode 的 agent。**
+>
+> DSH 负责界面与会话管理，模型推理跑在 ZCode 的 agent 循环里，用 ZCode 自己的工具集
+> （Bash / Read / Write / Edit / Glob / Grep …）。DSH 的系统提示里列出的工具
+> （`pwsh`、`fs-local`、`str-replace-editor` 等）对模型**不可见**。
+
+实测证据：
+
+```bash
+$ node bin/dsh-connect-zcode.js turn "用 Bash 执行 echo HELLO 并告诉我输出" --allow-tools
+result success, 15 streaming deltas
+  命令执行成功，Bash 工具返回的原始输出是：HELLO
+```
+
+ZCode 的 agent 自己跑了 Bash，DSH 全程不知道发生过一次工具调用。
+
+这是**上游的产品与安全设计**，不是本插件的实现缺陷。三条改造成纯直连的路线都已实测走死：
+
+| 路线 | 结果 |
+|---|---|
+| 直连套餐端点 `zcode.z.ai/.../zcode-plan/anthropic` | `401` / `Bearer` 方式被 WAF 拦（`405 3012 异常活动`） |
+| 直连 `open.bigmodel.cn` / `api.z.ai` | 认证能过，但走**个人 API Key 计费**，不烧套餐额度 |
+| 把 DSH 工具注册进 agent | 需要 ZCode App 进程内存里的 `token`，外部无法伪造 |
+
+完整实测数据与字段级证据见 [`docs/agent-architecture.md`](docs/agent-architecture.md)。
+
+**如果你要的是真正的「模型直连」**（DSH 完全掌控 system prompt 与工具），那需要改用个人
+API Key 走各家官方接口，代价是不再消耗 Coding Plan 套餐额度。
+
 ## 安全须知（装之前必读）
 
 这个「模型提供方」的真身是一个**以你当前用户权限运行、且带全套工具执行能力的 agent**。它不在 DSH 的工具权限边界内运行：DSH 的权限模式和浏览器审批界面只处理 DSH Host 自己发起的工具调用，不能确认 ZCode app-server 发起的授权请求；本插件也没有自己的交互式确认窗口。
