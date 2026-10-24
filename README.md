@@ -152,16 +152,30 @@ ZCode 的 agent 自己跑了 Bash，DSH 全程不知道发生过一次工具调�
 | 路线 | 结果 |
 |---|---|
 | 直连套餐端点（无签名） | `401` / `Bearer` 方式被 WAF 拦（`405 3012 异常活动`） |
-| 直连 + 复现的客户端签名 | ✅ **穿过 WAF**，抵达业务层（返回业务码 `1309 套餐已到期`） |
+| 直连 + 复现的客户端签名 | 能抵达业务层（业务码 `1309 套餐已到期`） |
+| 逐字节复制 agent 的 22 个 header + 同一 Node 24 运行时 | 仍 `405 3012`——WAF 的 `acw_tc` 会话绑定 |
 | 把 DSH 工具注册进 agent | 需要 ZCode App 进程内存里的 `token`，外部无法伪造 |
 
-> **签名机制已完全复现**并固化在 [`lib/client-signing.js`](lib/client-signing.js)：
-> OAuth token → signing JWT → HKDF/HMAC 握手 → AES-GCM 解包 Ed25519 私钥 → 签业务请求
-> （含 PoW）。实测带签名的请求能抵达业务层，证明签名链路正确。
->
-> **当前卡点是凭证而不是算法**：能换到的 signing JWT 指向的套餐已过期（`1309`），
-> 而实际在服务的 `start-plan` 用的是 `zcodejwttoken`——它不是签名凭证，
-> `zai` 家族的 access token 也已失效。**套餐续费后这套代码应当立即可用。**
+> **签名机制已复现**在 [`lib/client-signing.js`](lib/client-signing.js)（OAuth token →
+> signing JWT → HKDF/HMAC 握手 → AES-GCM 解包 Ed25519 → 签业务请求含 PoW）。
+> 但 `zcode.z.ai` 的 WAF 还有一层**会话绑定**，复制 header 也过不去——那是对方的主动防护，
+> 不应绕过。
+
+### ✅ 有正规渠道：智谱官方 API
+
+**不需要本插件**也能让 DSH 用上 GLM 模型，走公开文档的 OpenAI 兼容接口：
+
+| 端点 | 实测 |
+|---|---|
+| `POST open.bigmodel.cn/api/paas/v4/chat/completions` | **200 ✅ 真实生成** |
+| `GET  open.bigmodel.cn/api/paas/v4/models` | **200 ✅ 11 个模型** |
+| `POST open.bigmodel.cn/api/coding/paas/v4/...` | `429 1309 套餐已到期`（套餐专用路由） |
+
+标准路由**流式与工具调用齐全**，用同一把 key 即可，无需绕过任何防护。计费走账号余额。
+配置方式与全部实测数据见 [`docs/official-api-access.md`](docs/official-api-access.md)。
+
+> 一句话：**要消耗 Coding Plan 套餐额度，必须让 ZCode 的 agent 跑（当前架构）；
+> 只想让 DSH 用上 GLM 并完全掌控提示词，走 `/api/paas/v4` 即可。**
 
 完整实测数据与字段级证据见 [`docs/agent-architecture.md`](docs/agent-architecture.md)。
 

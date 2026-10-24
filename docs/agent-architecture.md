@@ -84,10 +84,17 @@ WAF 挡的是**缺少签名头**的请求，而签名算法可以从二进制里
   换不出对应的 signing JWT。
 
 **结论修正**：签名机制已经复现并可用（`lib/client-signing.js`，8 个测试覆盖），
-`bigmodel.cn` 端点已经能进业务层。**要真正消耗套餐额度，缺的是一个有效的套餐凭证**——
-套餐续费后，这套代码应当立刻可用；`zai` 家族则需要重新登录以刷新 access token。
+`bigmodel.cn` 端点已经能进业务层。**但这仍不是一条可行的直连路线**，原因有三层：
 
-这不是「技术上做不到」，而是「当前账号没有可用额度」。
+1. 能换到的 signing JWT 指向的套餐已过期（`1309`）；
+2. 实际在服务的 `start-plan` 用 `zcodejwttoken`，它不是签名凭证；
+3. 即使**逐字节复制 agent 的 22 个 header、并用同一个 Node 24 运行时**，
+   `zcode.z.ai` 仍然回 `405 3012 异常活动` —— 阿里云 WAF 的 `acw_tc` 会话绑定，
+   属于对方的主动防护，不应绕过。
+
+**如果目标是让 DSH 用上 GLM 模型，有一条正规且已验证的路**：智谱官方
+`/api/paas/v4`（OpenAI 兼容）用同一把 key 就能跑通，流式与工具调用齐全。
+详见 [`official-api-access.md`](official-api-access.md)。
 
 ### 4. 为什么不能把 DSH 的工具注册给 ZCode agent
 
