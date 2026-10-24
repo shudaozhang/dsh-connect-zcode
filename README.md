@@ -7,47 +7,36 @@ provider `zcode-cli` 背后是一个常驻的 `zcode app-server` 会话（stdio 
 再把该账号能服务的模型清单转述给 DSH —— **烧的是 ZCode 账号的额度，不需要 API Key，也不需要自建网关。**
 模型可以按需勾选启用哪些（见「选择启用哪些模型」）。
 
-本仓库：<https://github.com/shudaozhang/dsh-connect-zcode> ·
-上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0） ·
-前身：`dsh-zcode-plan-bridge`（v0.6.0 起更名为 `dsh-connect-zcode`）
+当前版本 **0.6.1**。
 
-> ## v0.5.0：直接接入本机 ZCode **桌面客户端**（新增，本机实测）
->
-> v0.4.x 只认 npm 版 CLI（`zcode-app-cli`）和 `%LOCALAPPDATA%\Programs\ZCode` 这类标准安装位。
-> 本机客户端装在 **`E:\zcode`**（自定义路径），且 `~/.zcode/v2/setting.json` 里
-> `dataBaseDir = D:\AI\zcode`（**数据根目录也不是 home**），所以旧版一律找不到。
->
-> v0.5.0 起插件自己完成整套桌面接入，**无需任何环境变量**：
->
-> 1. **发现客户端**：注册表 `Uninstall` 项的 `DisplayName ^ZCode` → 解析 `InstallLocation` /
->    `UninstallString` / `DisplayIcon` 得到安装根（本机 `E:\zcode`，版本 `3.16.3`），
->    再兜底 `%LOCALAPPDATA%\Programs\ZCode`、`%ProgramFiles%\ZCode`。
-> 2. **解析数据根**：读 `~/.zcode/v2/setting.json` 的 `dataBaseDir` → `D:\AI\zcode`，
->    于是凭证 / 个人 provider / 内置 release 都从 `D:\AI\zcode\.zcode\v2` 取
->    （home 下那份是 6 月的过期副本）。
-> 3. **按客户端自己的方式启动 CLI**：
->    `E:\zcode\ZCode.exe  E:\zcode\resources\glm\zcode.cjs  app-server --stdio --surface desktop`
->    —— 这是从运行中的客户端进程命令行实测出来的形态，并注入它需要的
->    `ELECTRON_RUN_AS_NODE=1`、`ZCODE_DATA_BASE_DIR`、`ZCODE_BUILTIN_PROVIDER_CONFIG_FILE`、
->    `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`（**缺了这些 CLI 会直接退出**）。
-> 4. **注册套餐账号 provider**：桌面版 CLI 不是 standalone 模式，`provider/updateAccountConfig`
->    会被接受；插件把内置 release 里声明的 `account:*` 套餐 provider 连同
->    `{availability, current, entitled}` 状态推给它并刷新 registry，模型清单从 13 条变成 15 条。
-> 5. **按路由选对签名凭证**：`account:*` 用凭证里的
->    `account-provider:coding-plan:<providerId>:account:<id>:api-key`，
->    z.ai Start Plan 才用 `zcodejwttoken`（用错会卡在 `Client signing requires an API Key`）。
->
-> 本机实测结果（2026-10-23，干净环境）：
->
-> | 检查 | 结果 |
-> |---|---|
-> | `doctor` | 全绿：客户端 `E:\zcode` 3.16.3、数据根 `D:\AI\zcode`、内置 release `3.16.3 (runtime)`、凭证 204 字符 JWT |
-> | `models` | **15** 个模型 / 6 个 provider（13 个个人 provider + `account:bigmodel-team-coding-plan` 的 GLM-5.3、GLM-5.3-Flash） |
-> | `turn --model qwen3.8-flash` | **成功**，3 个流式增量，`inputTokens 20862 / outputTokens 16`，回复 `OK` |
-> | `turn --model GLM-5.3`（套餐路由） | 通道打通、请求到达 `https://open.bigmodel.cn/api/anthropic`，返回业务错误 `1309 您的GLM Coding Plan套餐已到期`（**本机套餐已过期，非插件问题**） |
->
-> 换机器 / 换账号后套餐可用时，`account:*` 路由就能直接出字；套餐过期时
-> `doctor` / `turn` 会把上游的业务错误原样报出来，不会伪装成协议故障。
+本仓库：<https://github.com/shudaozhang/dsh-connect-zcode> ·
+上游原版：<https://github.com/kyle123740/dsh-zcode-cli-proxy>（AGPL-3.0）
+
+> **v0.6.1 修复**：插件页的「zcode 模型」卡片此前在真实宿主上不可用——显示
+> 「插件配置当前不可用」，开关全灰，每次写入都被回滚。根因是 DSH 设置只收录
+> **至少有一个 volatile 字段**的插件条目（`volatileForm()` 无 volatile 字段时整个条目被跳过），
+> 而模型列表字段原本是普通数组，所以该命名空间从未出现在 `settings.describe()` 里。
+> 0.6.1 把两个字段标记为 volatile 并做了解包。同一版本里开关改为**草稿 + 保存**，
+> 避免每次勾选都触发一次目录重读而让列表闪灰。详见 [CHANGELOG](CHANGELOG.md)。
+
+## 它能做什么
+
+- **自动接入桌面客户端**：读注册表 `Uninstall` 项发现安装根，读 `~/.zcode/v2/setting.json`
+  的 `dataBaseDir` 解析数据根，然后按客户端自己的形态启动内置 agent
+  （`ZCode.exe resources/glm/zcode.cjs app-server --stdio --surface desktop`，并注入它需要的
+  `ELECTRON_RUN_AS_NODE` / `ZCODE_*` 环境变量）。**无需任何环境变量配置。**
+- **注册套餐账号 provider**：桌面版 CLI 接受 `provider/updateAccountConfig`，插件把内置 release
+  里声明的 `account:*` 套餐 provider 连同 `{availability, current, entitled}` 状态推给它并刷新
+  registry，套餐模型才进入清单。
+- **按路由选对签名凭证**：`account:*` 用凭证里的
+  `account-provider:coding-plan:<providerId>:account:<id>:api-key`，z.ai Start Plan 才用
+  `zcodejwttoken`（用错会卡在 `Client signing requires an API Key`）。
+- **真流式**（text/reasoning delta 直接转发）、工具调用、图片输入、多轮会话按 DSH sessionId 复用。
+- **逐模型启用/停用**：插件页卡片里勾选，保存后 DSH 的模型选择器随即增减。
+
+> 换机器 / 换账号后如果套餐不可用，上游业务错误（例如
+> `1309 您的GLM Coding Plan套餐已到期`）会被 `doctor` / `turn` 原样报出来，不会伪装成协议故障。
+
 
 
 > **与上游 0.3.x 的差异（v0.4.x，基于实机逆向重写通道层）**
@@ -81,19 +70,55 @@ DSH Agent ──► provider "zcode-cli" ──► ZcodeAppServerAdapter
                                                   └──► zcode.z.ai/api/v1/zcode-plan/anthropic
 ```
 
+## 安装
+
+**前置条件**：本机已安装并登录 **ZCode 桌面客户端**（有可用额度的账号）。没有客户端时插件不会注册 provider。
+
+### 方式一：DSH 插件市场（上架后可用）
+
+DSH → 插件 → 发现 → 搜索 `dsh-connect-zcode` → 安装 → 重启 DSH。
+
+### 方式二：命令行安装
+
+```powershell
+dsh plugin --profile <你的 profile> add dsh-connect-zcode
+```
+
+profile 名通常是 `desktop` 或 `web`。用 npm 包名安装时，需要该包已发布到 npm；
+想直接从 GitHub 安装，把上面的包名换成仓库地址：
+
+```powershell
+dsh plugin --profile desktop add shudaozhang/dsh-connect-zcode
+```
+
+> 官方 DSH Desktop 应用推荐用界面里的 **设置 → 插件** 安装，而不是命令行。
+
+### 方式三：本地目录装配（开发用）
+
+见下方「开发」章节里 `cordis.patch.yml` 的 `file://` 写法。
+
+### 安装后
+
+DSH 设置 → 模型（Models）→ 提供方 **zcode** → 选模型。
+也可以到 **插件 → dsh-connect-zcode** 页面里勾选要启用哪些模型（见「选择启用哪些模型」）。
+
 ## 用法
 
 1. 装一份 ZCode CLI（`npm i -g zcode-app-cli`，或桌面客户端自带的 `zcode.cjs`），并登录有额度的账号。
 2. 把本插件装进 DSH profile，重启 DSH。
 3. DSH 设置 → 模型（Models）→ 提供方 **zcode** → 选模型。
 
-可用模型**不是插件写死的**，而是 CLI 当前账号能服务的那批。本机实测（2026-10-22）：
+可用模型**不是插件写死的**，而是 CLI 当前账号能服务的那批，随账号套餐与客户端版本变化。
+下例取自本机（2026-10-24，客户端 3.16.3 / 17 个模型）：
 
 | provider | model | context | max output | image |
 |---|---|---|---|---|
-| `account:zai-individual-coding-plan` | GLM-5.3 | 1000000 | 128000 | ✓ |
-| `account:zai-individual-coding-plan` | GLM-5.3-Flash | 1000000 | 128000 | ✓ |
-| `ccc6dfb9-…`（个人 deepseek） | deepseek-v4-flash | 1000000 | 384000 | ✓ |
+| `account:bigmodel-individual-coding-plan` | GLM-5.3 | 1000000 | 128000 | ✓ |
+| `account:bigmodel-start-plan` | GLM-5.3-Flash | 1000000 | 128000 | ✓ |
+| `account:bigmodel-start-plan` | GLM-5.2 | 1000000 | 128000 | ✓ |
+| 个人 provider（`new-provider-*` 等） | qwen3.8-flash / deepseek-v4.1-flash 等 | 1000000 | 384000 | ✓ |
+
+想看清本机能出哪些模型、各自的 provider 与能力位，跑 `node bin/dsh-connect-zcode.js models`。
 
 同一 model id 出现在多个 provider 上时（如上表 GLM-5.3 同时在 `account:` 与 `zai-api` 上），
 插件**优先 `account:` 开头的路由** —— 那条烧计划额度，`zai-api` 那条按 API Key 计费。
@@ -200,7 +225,8 @@ node bin/dsh-connect-zcode.js image <file> # 发一张图（消耗额度）
 
 （入口就在插件页面内，不会额外占用左侧栏的位置。）
 
-插件默认把客户端能服务的**全部**模型都报给 DSH（本机 17 个）。只想用其中几个时，用两个配置项挑：
+插件默认把客户端能服务的**全部**模型都报给 DSH（本机实测 17 个，随账号与客户端版本变化）。
+只想用其中几个时，用两个配置项挑：
 
 ```yaml
 enabledModelIds:  [GLM-5.3, GLM-5.3-Flash]   # 只启用这两个（留空 = 全部）
@@ -266,18 +292,21 @@ npm run diagnose   # 诊断命令入口
 ## 目录结构
 
 ```
-lib/index.js        插件装配：Config schema、provider 注册、模型清单来源决策
+lib/index.js        插件装配：Config schema（模型列表字段标记 volatile）、provider 注册、模型清单来源决策
 lib/app-server.js   app-server 通道：JSON-RPC 客户端 + LlmAdapter（事件流/回合锁/鉴权）
                     + resolveSpawnPlan()：桌面 / node 两种启动形态的唯一决策点
+lib/client.js       浏览器半边：插件页的「zcode 模型」卡片（草稿 + 保存）
 lib/zcode-runtime.js 桌面客户端发现、数据根解析、内置 release 选择、CLI 启动环境
                     （只用 Node 内置模块，doctor 在插件加载失败时仍可用）
 lib/account-sync.js 套餐账号 provider 注册（updateAccountConfig + refreshRegistry）
                     与按路由选择签名凭证（account api-key / zcodejwt）
 lib/messages.js     消息工具：图片物化、对话拍平、泄漏工具调用清洗
 lib/credentials.js  解密 credentials.json（数据根优先、~/.zcode/v2 兜底）
+lib/authorization.js app-server 权限请求策略（默认 deny）
 lib/diagnostics.js  五个诊断子命令（doctor/models/protocol/turn/image），走同一套启动计划
 bin/                可执行入口
-test/               纯函数单测（node --test；62 个用例：桌面发现 26 + 模型筛选 9 + 原有 27）
+test/               单测（node --test，100 个用例）：桌面发现、模型筛选、配置 volatile 门、
+                    客户端命名空间绑定与草稿语义、账号套餐、鉴权、诊断
 docs/               设计契约、安装/回滚、参考插件研究、发布清单
 CHANGELOG.md        版本变更记录
 verify/             E2E 验证脚本与证据（verify/desktop-e2e.mjs）
