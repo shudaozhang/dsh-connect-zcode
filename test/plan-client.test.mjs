@@ -16,11 +16,14 @@ import {
   classifyPlanError,
   createAnthropicTranslator,
   createSseParser,
+  dedupeRoutes,
+  isFailoverError,
   messagesUrl,
   parseErrorEnvelope,
   pickCodingPlanApiKey,
   resolvePlanRoute,
   streamMessages,
+  streamMessagesAcrossRoutes,
   translateMessage,
 } from '../lib/plan-client.js'
 
@@ -730,4 +733,189 @@ test('streamMessages surfaces transport failures, aborts and missing bodies dist
     })(),
     (error) => error instanceof PlanClientError && error.code === 'BAD_RESPONSE',
   )
+})
+
+// ---------------------------------------------------------------------------
+// 多路由自动切换（merged 模式）
+// ---------------------------------------------------------------------------
+
+/** 一条正常产出文本的 SSE 线格式。 */
+const OK_WIRE =
+  'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":7,"output_tokens":0}}}\n\n' +
+  'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n' +
+  'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong"}}\n\n' +
+  'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n' +
+  'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":3},"delta":{"stop_reason":"end_turn"}}\n\n' +
+  'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+/** 两条候选路由（start-plan 优先，coding-plan 兜底）。 */
+const CHAIN = [
+  resolvePlanRoute({ providerId: 'account:zai-start-plan', credentials: { zcodejwttoken: 'jwt' } }),
+  resolvePlanRoute({
+    providerId: 'account:zai-individual-coding-plan',
+    credentials: { zcodejwttoken: 'jwt', [planKeyFor('account:zai-individual-coding-plan')]: 'plan-key' },
+  }),
+]
+
+/**
+ * @param {readonly import('../lib/plan-client.js').PlanRoute[]} routes 候选链。
+ * @param {import('../lib/plan-client.js').PlanFailoverOptions} [options] 参数。
+ * @returns {Promise<import('../lib/plan-client.js').PlanStreamEvent[]>} 全部事件。
+ */
+async function drainChain(routes, options = {}) {
+  /** @type {import('../lib/plan-client.js').PlanStreamEvent[]} */
+  const out = []
+  for await (const event of streamMessagesAcrossRoutes(routes, { model: 'm', max_tokens: 1, messages: [] }, options)) out.push(event)
+  return out
+}
+
+test('isFailoverError: quota/concurrency/auth/transport are worth another route, param/abort are not', () => {
+  for (const code of ['QUOTA', 'CONCURRENCY', 'AUTH', 'TOKEN_MISSING', 'API_KEY_MISSING', 'CARD_ID_MISSING', 'UPSTREAM', 'TRANSPORT', 'TIMEOUT']) {
+    assert.equal(isFailoverError(new PlanClientError('x', code)), true, `${code} should fail over`)
+  }
+  for (const code of ['PARAM', 'ABORTED', 'BAD_RESPONSE', 'UNKNOWN_PROVIDER']) {
+    assert.equal(isFailoverError(new PlanClientError('x', code)), false, `${code} must not fail over`)
+  }
+  assert.equal(isFailoverError(new Error('plain')), false, 'a non-PlanClientError is not a route problem')
+})
+
+test('dedupeRoutes drops a route whose request would be byte-identical (same endpoint, same credential)', () => {
+  // Measured on the real release: account:zai-start-plan and account:bigmodel-start-plan share
+  // the endpoint AND the single zcodejwttoken, so their requests are identical. Retrying the
+  // second one costs a round trip and cannot change the outcome.
+  const credentials = { zcodejwttoken: 'jwt' }
+  const zaiStart = resolvePlanRoute({ providerId: 'account:zai-start-plan', credentials })
+  const bigmodelStart = resolvePlanRoute({ providerId: 'account:bigmodel-start-plan', credentials })
+  const zaiCoding = resolvePlanRoute({
+    providerId: 'account:zai-individual-coding-plan',
+    credentials: { zcodejwttoken: 'jwt', [planKeyFor('account:zai-individual-coding-plan')]: 'zai-key' },
+  })
+  const bigmodelCoding = resolvePlanRoute({
+    providerId: 'account:bigmodel-individual-coding-plan',
+    credentials: { zcodejwttoken: 'jwt', [planKeyFor('account:bigmodel-individual-coding-plan')]: 'bigmodel-key' },
+  })
+  const deduped = dedupeRoutes([zaiStart, bigmodelStart, zaiCoding, bigmodelCoding])
+  // The two start-plan routes collapse; the two coding-plan routes stay (different baseUrl and key).
+  assert.deepEqual(deduped.map((route) => route.providerId), [
+    'account:zai-start-plan',
+    'account:zai-individual-coding-plan',
+    'account:bigmodel-individual-coding-plan',
+  ])
+  // The highest-priority route of a duplicate group is the one kept.
+  assert.equal(dedupeRoutes([bigmodelStart, zaiStart])[0].providerId, 'account:bigmodel-start-plan')
+  // An empty / malformed input degrades to an empty list, never a throw.
+  assert.deepEqual(dedupeRoutes([]), [])
+  assert.deepEqual(dedupeRoutes(/** @type {any} */ (null)), [])
+})
+
+test('dedupeRoutes keeps a route whose headers cannot be built (a missing card id is a real failure to report)', () => {
+  // highspeed-card throws CARD_ID_MISSING from buildHeaders; silently dropping it would turn a
+  // "you have no card" into "this model has no routes".
+  const highspeed = resolvePlanRoute({
+    providerId: 'account:zai-highspeed-card',
+    credentials: {
+      zcodejwttoken: 'jwt',
+      [planKeyFor('account:zai-highspeed-card')]: 'hs-key',
+    },
+  })
+  const start = resolvePlanRoute({ providerId: 'account:zai-start-plan', credentials: { zcodejwttoken: 'jwt' } })
+  const deduped = dedupeRoutes([start, highspeed])
+  assert.deepEqual(deduped.map((route) => route.providerId), ['account:zai-start-plan', 'account:zai-highspeed-card'])
+})
+
+test('streamMessagesAcrossRoutes walks the chain and reports each attempt', async () => {
+  /** @type {string[]} */
+  const urls = []
+  /** @type {import('../lib/plan-client.js').PlanRouteAttempt[]} */
+  const attempts = []
+  const fetchImpl = /** @type {typeof fetch} */ (async (url) => {
+    urls.push(String(url))
+    if (urls.length === 1) return new Response('{"code":1005,"msg":"exceed quota limit"}', { status: 200, headers: { 'content-type': 'application/json' } })
+    return sseResponse([new TextEncoder().encode(OK_WIRE)])
+  })
+  const events = await drainChain(CHAIN, { fetchImpl, onAttempt: (attempt) => attempts.push(attempt) })
+  assert.deepEqual(urls, [
+    'https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages',
+    'https://api.z.ai/api/anthropic/v1/messages',
+  ])
+  assert.deepEqual(attempts.map((attempt) => [attempt.providerId, attempt.ok, attempt.failover]), [
+    ['account:zai-start-plan', false, true],
+    ['account:zai-individual-coding-plan', true, undefined],
+  ])
+  assert.ok(events.some((event) => event.type === 'text' && event.delta === 'pong'))
+  assert.deepEqual(events.at(-1), { type: 'done', stopReason: 'end_turn' })
+})
+
+test('streamMessagesAcrossRoutes buffers until the route proves it has content', async () => {
+  // The first route emits usage then dies without ever producing content. None of it may reach
+  // the caller: a half-turn from a failed route would look like a real answer.
+  const wire = 'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":9,"output_tokens":0}}}\n\n'
+  const fetchImpl = /** @type {typeof fetch} */ (async (url) => {
+    if (String(url).includes('zcode-plan')) return sseResponse([new TextEncoder().encode(wire)])
+    return sseResponse([new TextEncoder().encode(OK_WIRE)])
+  })
+  const events = await drainChain(CHAIN, { fetchImpl })
+  // Every usage event belongs to the route that actually answered (input_tokens 7, not the
+  // failed route's 9). A leaked 9 would mean the buffered attempt was flushed.
+  const usages = events.filter((event) => event.type === 'usage')
+  assert.ok(usages.length > 0)
+  for (const usage of usages) assert.equal(usage.inputTokens, 7, 'the failed route contributed no events')
+  assert.ok(events.some((event) => event.type === 'text' && event.delta === 'pong'))
+})
+
+test('streamMessagesAcrossRoutes does not switch once content has been committed', async () => {
+  // A mid-stream failure after content must surface, not silently restart on another route.
+  const wire =
+    'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":3,"output_tokens":0}}}\n\n' +
+    'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}\n\n' +
+    'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n'
+  let calls = 0
+  const fetchImpl = /** @type {typeof fetch} */ (async () => {
+    calls += 1
+    return sseResponse([new TextEncoder().encode(wire)])
+  })
+  await assert.rejects(drainChain(CHAIN, { fetchImpl }), (error) => {
+    assert.equal(error.code, 'UPSTREAM')
+    return true
+  })
+  assert.equal(calls, 1, 'a committed route must not be retried elsewhere')
+})
+
+test('streamMessagesAcrossRoutes throws the last error with the full attempt chain attached', async () => {
+  let calls = 0
+  const fetchImpl = /** @type {typeof fetch} */ (async () => {
+    calls += 1
+    return new Response('{"code":1005,"msg":"exceed quota limit"}', { status: 200, headers: { 'content-type': 'application/json' } })
+  })
+  await assert.rejects(drainChain(CHAIN, { fetchImpl }), (error) => {
+    assert.equal(error.code, 'QUOTA')
+    assert.equal(error.attempts?.length, 2)
+    assert.deepEqual(error.attempts.map((attempt) => attempt.providerId), [
+      'account:zai-start-plan',
+      'account:zai-individual-coding-plan',
+    ])
+    return true
+  })
+  assert.equal(calls, 2)
+})
+
+test('streamMessagesAcrossRoutes rejects an empty chain instead of silently doing nothing', async () => {
+  await assert.rejects(drainChain([]), (error) => error.code === 'UNKNOWN_PROVIDER')
+})
+
+test('streamMessagesAcrossRoutes treats an empty answer as a failed route and moves on', async () => {
+  // A route that returns "no content at all" is not an answer; the next route may do better.
+  const empty = 'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":0}}}\n\n' +
+    'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n' +
+    'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+  /** @type {import('../lib/plan-client.js').PlanRouteAttempt[]} */
+  const attempts = []
+  const fetchImpl = /** @type {typeof fetch} */ (async (url) => {
+    if (String(url).includes('zcode-plan')) return sseResponse([new TextEncoder().encode(empty)])
+    return sseResponse([new TextEncoder().encode(OK_WIRE)])
+  })
+  const events = await drainChain(CHAIN, { fetchImpl, onAttempt: (attempt) => attempts.push(attempt) })
+  assert.equal(attempts[0].code, 'EMPTY_RESPONSE')
+  assert.equal(attempts[0].failover, true)
+  assert.ok(events.some((event) => event.type === 'text' && event.delta === 'pong'))
 })

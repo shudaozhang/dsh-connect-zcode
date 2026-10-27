@@ -23,12 +23,16 @@
 - **直连套餐额度**（`transport: plan`，默认）：按 `providerId` 选端点与鉴权形态，
   直接调 `.../v1/messages`。真流式（text / reasoning / tool_use 增量）、工具调用、
   图片输入全部支持。
+- **一个模型只出现一次，套餐之间自动切换**：`planRouteMode: merged`（默认）下模型选择器
+  里就是 `GLM-5.3-Flash`，插件按套餐优先级自己挑路由，额度用尽就换下一份套餐。
+  想手动指定烧哪份额度就切 `explicit`。
 - **登录授权**：`login` 命令走设备码 OAuth —— 打印一个授权 URL，用户在任意浏览器确认，
   插件轮询拿回 `zcodejwttoken`。**不需要装 ZCode 客户端，不需要本地监听端口。**
 - **额度查询**：`quota` 命令读 `billing/current`（免费、不耗额度），展示套餐与 entitlement。
 - **路由表可诊断**：`plan-models` 列出全部路由与模型（离线）。10 条 `account:*` 路由 /
-  22 个 DSH 模型 id。
+  22 条路由-模型对 / **4 个不同模型**。
 - **逐模型启用/停用**：插件页卡片里勾选，保存后 DSH 的模型选择器随即增减。
+  `merged` 模式下还能按路由停用（只摘掉某份套餐，模型保留）。
 - **旧通道保留**：`transport: agent` 仍是原来的托管形态（自动发现客户端、拉起内置 agent、
   推送套餐账号 provider、按路由选签名凭证）。
 
@@ -161,10 +165,27 @@ POST https://open.bigmodel.cn/api/anthropic/v1/messages
 `zcode-plan` 端点只收 Bearer JWT，`api.z.ai` / `open.bigmodel.cn` 只收 `x-api-key`；
 交叉用错一律 `401`。
 
-直连通道的模型 id 形如 **`account:zai-start-plan#GLM-5.3-Flash`**（`<providerId>#<modelId>`）。
-必须带路由前缀，因为同一个模型（如 `GLM-5.3-Flash`）同时挂在 start-plan / coding-plan /
-offpeak / highspeed 四条路由上，烧的是**不同的额度池**、打的是**不同的上游**。
-路由优先级：start-plan → individual/team coding-plan → offpeak → highspeed。
+直连通道的模型清单有两种投影方式，由 `planRouteMode` 选择（默认 `merged`）：
+
+| `planRouteMode` | DSH 模型 id | 模型数 | 路由由谁决定 | 自动切换 |
+|---|---|---|---|---|
+| **`merged`（默认）** | `GLM-5.3-Flash` | **4** | 插件按套餐优先级挑 | **有** |
+| `explicit` | `account:zai-start-plan#GLM-5.3-Flash` | 22 | 用户显式指定 | 无 |
+
+`merged` 模式下每个模型背后是一条**候选路由链**（start-plan → individual/team coding-plan
+→ offpeak → highspeed）。请求时依次尝试，前一条额度用尽 / 凭证缺失 / 上游 5xx 就换下一条：
+
+```
+GLM-5.3-Flash
+  start → coding → idle → fast (10 routes)
+```
+
+这条链会先去重：「拼出来的请求逐字节相同」的路由只留优先级最高的一条。
+`account:zai-start-plan` 与 `account:bigmodel-start-plan` 实测指向**同一个 baseUrl** 且共用
+同一个 `zcodejwttoken`，换过去只会白跑一趟 —— 本机实测把 `GLM-5.3-Flash` 的链从 10 条压到 2 条。
+
+`explicit` 模式保留 0.7.0 的展开视图，用于「我就要烧 start-plan 这份额度，失败了别给我换」。
+两种模式的配置写法互相兼容，切换模式不会让已有配置静默失效。
 
 ### 登录授权（脱离 ZCode 客户端）
 
@@ -327,19 +348,33 @@ app-server **一个会话同时只允许一个在途回合**。上一轮被中�
 
 ```
 node bin/dsh-connect-zcode.js plan-models  # 列出直连路由表与全部模型（离线，免费）
+node bin/dsh-connect-zcode.js plan-models --mode both   # merged + explicit 两个视图
 node bin/dsh-connect-zcode.js quota        # 读套餐额度（免费，不耗额度）
 node bin/dsh-connect-zcode.js login        # 设备码登录，打印授权 URL 后轮询（免费）
 node bin/dsh-connect-zcode.js plan-turn "hi"  # 走直连通道发一回合（消耗额度）
 ```
 
 `plan-models` 读客户端磁盘上的 builtin release；读不到就用内置快照，所以**没装客户端也能跑**。
-输出里每条路由都标了鉴权形态与端点，可以直接对着排错。
+输出里每条路由都标了鉴权形态与端点，可以直接对着排错。默认打 merged 视图（每个模型一行 +
+它的路由链），`--mode explicit` 打 22 条路由-模型对，`--mode both` 两个都打 —— 这是看清
+「为什么选择器里只有 4 个模型、路由表里却有 22 条」最快的办法。
 
 `quota` 只 `GET billing/current`。**`plans: []` 是有效答案**（账号当前没有套餐），
 不是错误 —— 命令会明确这么写，避免把「没额度」误读成「插件坏了」。
 
 `login` 会打印一个 `authorize_url`，在任意浏览器打开并确认即可，插件轮询到 `ready` 后把
 凭证写进插件自己的文件。`--family zai|bigmodel` 选家族。
+
+`plan-turn` 默认走该模型的**整条候选链**（自动切换），`--route <providerId>` 则钉死一条。
+每次尝试都会打印一行：
+
+```
+model    GLM-5.3-Flash
+chain    account:bigmodel-start-plan → account:bigmodel-team-coding-plan  (auto-failover)
+  deduped 1 route(s) whose request would be identical
+  route    account:bigmodel-start-plan unavailable (QUOTA) → next: 计划额度不足（quota 1005）
+  route    account:bigmodel-team-coding-plan unavailable (QUOTA): 计划额度不足（quota 1309）
+```
 
 `plan-turn` 的关键设计：**上游业务错误被当作成功信号**。本机没有额度时会得到
 `1005 exceed quota limit`，命令会打印
@@ -379,18 +414,34 @@ node bin/dsh-connect-zcode.js image <file> # 发一张图（消耗额度）
 两条通道各有自己的模型开关（互不干扰，因为 id 形式不同）：
 
 ```yaml
-# 直连通道（默认）。id 形如 <providerId>#<modelId>
-planEnabledModelIds:  [account:zai-start-plan#GLM-5.3-Flash]
-planDisabledModelIds: [account:bigmodel-start-plan#GLM-5.2]   # 优先级更高
+# 直连通道（默认，planRouteMode: merged）。id 就是裸 modelId
+planEnabledModelIds:  [GLM-5.3-Flash]
+planDisabledModelIds: [GLM-5.2]   # 优先级更高
 
 # 旧通道。id 是 CLI 上报的裸 modelId
 enabledModelIds:  [GLM-5.3]
 disabledModelIds: [GLM-5.2]
 ```
 
-> **不要把旧字段也传给直连通道**：旧字段填裸 `modelId`，直连填 `#` 形式，混用会互相误伤。
-> 适配器在 `plan*` 字段存在时**不回退**旧字段（空 = 全开）；只有整个配置对象没有 `plan*`
-> 字段（旧版 `index.js`）时才退回旧字段。
+`merged` 模式下还支持**按路由**精细控制 —— 写 `<providerId>#<modelId>`：
+
+```yaml
+planEnabledModelIds:
+  - account:zai-start-plan#GLM-5.3-Flash   # 优先烧 start-plan，但它不可用时仍会切换
+planDisabledModelIds:
+  - account:zai-bigmodel-team-coding-plan#GLM-5.3-Flash   # 只摘掉这条路由，模型保留
+```
+
+| 写法 | `merged` 模式下的含义 |
+|---|---|
+| `GLM-5.3-Flash` | 点名模型：启用 = 只留它；停用 = 整个模型消失 |
+| `account:zai-start-plan#GLM-5.3-Flash`（启用） | 把该路由提到链首，**保留**自动切换 |
+| `account:zai-start-plan#GLM-5.3-Flash`（停用） | 只把该路由从链上摘掉，模型还在 |
+| `account:zai-start-plan/GLM-5.3-Flash` | 同上（斜杠写法等价） |
+
+> **不要把旧字段也传给直连通道**：旧字段填裸 `modelId`，直连 `explicit` 模式填 `#` 形式，
+> 混用会互相误伤。适配器在 `plan*` 字段存在时**不回退**旧字段（空 = 全开）；只有整个配置
+> 对象没有 `plan*` 字段（旧版 `index.js`）时才退回旧字段。
 
 在 **插件 → dsh-connect-zcode** 页面里，型号卡片会列出全部候选模型，每个模型一个开关；
 顶部显示 `已启用 N/M`，右侧有「全部启用」和「重新读取」。
@@ -405,8 +456,10 @@ disabledModelIds: [GLM-5.2]
 **怎么知道该填哪些 id？** 跑对应的诊断命令，它会列出全部 id，并按当前配置标注 `[disabled]`：
 
 ```powershell
-node bin/dsh-connect-zcode.js plan-models        # 直连通道的 id
-node bin/dsh-connect-zcode.js models             # 旧通道的 id
+node bin/dsh-connect-zcode.js plan-models                    # merged 视图：4 个模型 + 各自的路由链
+node bin/dsh-connect-zcode.js plan-models --mode explicit    # 22 条路由-模型对
+node bin/dsh-connect-zcode.js plan-models --mode both        # 两个视图都打
+node bin/dsh-connect-zcode.js models                         # 旧通道的 id
 ```
 
 填错的 id 不会被静默忽略：命令会打印 `not found in the catalogue: ...`，
@@ -415,9 +468,9 @@ node bin/dsh-connect-zcode.js models             # 旧通道的 id
 > 说明：这是**显示层**的筛选 —— 上游那边仍然能服务全部模型，路由表不受影响。
 > 因此已停用的模型不会出现在选择器里，但不会因为“停用”而导致历史会话报错。
 
-> **直连通道会列出 22 个 id（不是 15 个）**：同一个模型挂在多条路由上就各算一条。
-> 这是正确行为 —— 每条路由是独立额度池，`GLM-5.3-Flash` 走 start-plan 和走 coding-plan
-> 烧的不是同一份额度。想要「一个模型只出现一次」就得牺牲「显式选路由」的能力，当前不做。
+> **为什么默认是 `merged`**：模型选择器是给人挑模型的，不是给人挑额度池的。
+> `explicit` 模式下列 22 条、`GLM-5.3-Flash` 出现四次，用户根本无从判断该选哪个；
+> 而「先烧哪份额度」是可以由插件按确定性优先级决定的事。需要绝对控制时再切 `explicit`。
 
 ## 配置（设置 → 插件）
 
@@ -425,8 +478,9 @@ node bin/dsh-connect-zcode.js models             # 旧通道的 id
 |------|------|------|
 | `enabled` | `true` | 总开关 |
 | `transport` | `plan` | `plan` = 直连额度（不启动 agent，推荐）；`agent` = 托管 agent（旧通道）；`both` = 两条都注册 |
-| `planEnabledModelIds` | `[]` | 直连通道只启用这些（写 `<providerId>#<modelId>`）。留空 = 全部 |
-| `planDisabledModelIds` | `[]` | 直连通道额外停用（优先级更高） |
+| `planRouteMode` | `merged` | 直连通道模型清单投影：`merged` = 一个模型一条 + 套餐间自动切换（**4 个模型**）；`explicit` = 一条路由一条 + 手动选（**22 个**） |
+| `planEnabledModelIds` | `[]` | 直连通道只启用这些。`merged` 写裸 id（`GLM-5.3-Flash`），也可写 `#` 形式表达「优先这条路由」；`explicit` 写 `<providerId>#<modelId>`。留空 = 全部 |
+| `planDisabledModelIds` | `[]` | 直连通道额外停用（优先级更高）。`merged` 下裸 id 隐藏整个模型，`#` 形式只摘掉该路由 |
 | `planCredentialStore` | 空 | 插件自有凭证文件；空 = `<dataBaseDir>/.zcode/dsh-plan-credentials.json`。**绝不写回客户端 credentials.json** |
 | `zcodeCliPath` | 自动探测 | `zcode.cjs` 路径；空 = 从 `ZCODE_CLI_PATH`、**桌面客户端（注册表发现的安装根）**、常见安装位置、`zcode-app-cli` 全局包依次探测 |
 | `zcodeClientRoot` | 空 | ZCode 桌面客户端安装根（如 `E:\zcode`）；空 = 自动探测（注册表 → 标准安装目录） |
@@ -469,13 +523,17 @@ npm run diagnose   # 诊断命令入口
 
 ```
 # ── 直连额度通道（0.7.0 新增，默认） ──────────────────────────────────────────
-lib/plan-client.js   直连 HTTP 客户端：路由解析 → 请求构造 → SSE 解析 → 错误分类
+lib/plan-client.js   直连 HTTP 客户端：路由解析 → 请求构造 → SSE 解析 → 错误分类；
+                     外加 streamMessagesAcrossRoutes()（按候选链自动切换）与
+                     dedupeRoutes()（去掉请求逐字节相同的路由）
                      （零依赖，只用全局 fetch；不启动任何子进程）
 lib/plan-auth.js     设备码 OAuth 登录 + AES-256-GCM 凭证加解密 + 插件自有凭证存储
 lib/plan-routes.js   路由表：读客户端 builtin release → providerId/baseUrl/模型清单；
-                     读不到降级到内置快照（10 条路由），所以没装客户端也能用
+                     读不到降级到内置快照（10 条路由），所以没装客户端也能用。
+                     另有 mergePlanModels()（模型→路由链）与 routesForModel()
 lib/plan-quota.js    额度查询（billing/current | balance | preview）+ 归一化 + TTL 缓存
-lib/plan-adapter.js  ZcodePlanAdapter extends LlmAdapter：把上面几块接成 provider zcode-plan
+lib/plan-adapter.js  ZcodePlanAdapter extends LlmAdapter：把上面几块接成 provider zcode-plan；
+                     planRouteMode=merged|explicit 两种模型清单投影共用一条代码路径
 
 # ── 旧通道（托管 agent，transport: agent） ─────────────────────────────────────
 lib/app-server.js    app-server 通道：JSON-RPC 客户端 + LlmAdapter（事件流/回合锁/鉴权）

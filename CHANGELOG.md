@@ -2,6 +2,71 @@
 
 本项目的所有重要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.8.0] - 2026-10-27
+
+**一个模型只出现一次，套餐之间自动切换。**
+
+0.7.0 的直连通道能烧额度了，但模型清单是「一条路由 × 一个模型」展开的 22 条 ——
+`GLM-5.3-Flash` 在 start-plan / coding-plan / offpeak / highspeed 上各出现一次。这样做的
+理由是「同一模型走不同套餐烧的是不同额度池」，用户必须自己选。但实际用起来这是错的体验：
+用户想要的是**一个模型**，至于烧哪份套餐，那是插件该操心的事。
+
+0.8.0 把这件事交回给插件。
+
+### 新增
+
+- **`planRouteMode` 配置项**（`merged` | `explicit`，默认 `merged`）。
+  - `merged`：一个模型一条，DSH 模型 id 就是 `GLM-5.3-Flash`。模型背后是一条**候选路由链**
+    （按套餐优先级：start-plan → coding-plan → offpeak → highspeed），请求时依次尝试，
+    前一条额度用尽 / 凭证缺失 / 上游 5xx 就自动换下一条。**22 → 4 个模型。**
+  - `explicit`：0.7.0 的行为，22 条 `account:zai-start-plan#GLM-5.3-Flash`，绝不自动切换。
+- **`streamMessagesAcrossRoutes()`**（`lib/plan-client.js`）—— 按候选链依次尝试的生成器。
+  关键设计是**先缓冲再放行**：内容一旦发给 DSH 就不能换路由了（否则用户会看到两段互相
+  矛盾的回复），所以每条路由先缓冲事件，确认真的产出了内容才转直通。
+- **`dedupeRoutes()`** —— 去掉「拼出来的请求逐字节相同」的路由。实测 `account:zai-start-plan`
+  与 `account:bigmodel-start-plan` 指向**同一个 baseUrl** 且共用同一个 `zcodejwttoken`，
+  换过去只会白跑一趟。本机实测把 `GLM-5.3-Flash` 的链从 10 条压到 2 条。
+- **路由级精细控制**（仅 `merged` 模式）：
+  - `planEnabledModelIds` 里写 `account:zai-start-plan#GLM-5.3-Flash` → 该路由提到链首
+    （「优先烧这份套餐」），但**仍然**保留自动切换；
+  - `planDisabledModelIds` 里写同一个 → 只把那条路由从链上摘掉，模型还在。
+    写裸 `GLM-5.3-Flash` 才是整个模型消失。
+- **`parsePlanModelRef()`** —— 区分「用户显式钉了路由」与「用户只要这个模型」。这是
+  merged 模式能做对的前提：前者是单条路由，后者是一整条候选链。
+- `plan-models` 命令新增 `--mode merged|explicit|both`，一次看清 4 个模型与 22 条路由的对应关系。
+  `plan-turn` 现在会打印每次尝试的路由与结果。
+
+### 变更
+
+- 模型清单的 `description` 从 200 多字符的 providerId 串改成套餐种类摘要
+  （`start → coding → idle → fast (10 routes)`），否则在模型选择器里根本读不完。
+- 模型清单条目内部统一成 `{ id, modelId, routes: PlanProvider[] }`，两种模式共用一条
+  代码路径：`explicit` 的链长恒为 1，等价于不做切换。
+
+### 实测（本机，2026-10-27）
+
+```
+planRouteMode=merged   -> 4 个模型
+planRouteMode=explicit -> 22 个模型
+
+plan-turn "say OK" --model GLM-5.3-Flash
+  chain    account:bigmodel-start-plan → account:bigmodel-team-coding-plan  (auto-failover)
+  deduped 1 route(s) whose request would be identical
+  route    account:bigmodel-start-plan unavailable (QUOTA) → next: 1005 exceed quota limit
+  route    account:bigmodel-team-coding-plan unavailable (QUOTA): 1309 套餐已到期
+```
+
+自动切换在真实端点上跑通了：第一条回 `1005`，自动换到第二条，拿到 `1309`。
+本机账号没有任何可用套餐，所以「切换后成功拿到内容」这一步仍然无法验证 —— 与 0.7.0
+的验证边界相同，切换逻辑本身由 27 个离线单测覆盖（含「已提交后不得重试」「全部失败时
+带出完整尝试链」）。
+
+### 验证边界（如实说明）
+
+本机账号没有可用套餐额度，所以「切到某条路由后真的拿到正常回复」这一步**没有**被验证。
+已验证的是：路由链构造、去重、逐条尝试、失败分类与切换判定、链耗尽后的错误聚合、
+真实端点上的两次业务层响应（1005 → 1309）。
+
 ## [0.7.0] - 2026-10-27
 
 **直连计划额度：不再托管 ZCode 的 agent 进程。**

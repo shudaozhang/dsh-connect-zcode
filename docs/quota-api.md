@@ -472,6 +472,52 @@ X-Device-Mid: 98b1e291-9e28-4eaf-b42b-e4acf9d58805
 - 推荐做法：UI 用 `QuotaCache`（TTL 60s）读额度做展示；推理失败时**不要**把
   "额度查询失败" 当成 "推理不可用"，两者要分开降级。
 
+### 8.1 多套餐自动切换：为什么同一份额度会被重复尝试（0.8.0）
+
+`planRouteMode: merged` 下，一个模型背后是一条候选路由链。0.8.0 加了一个去重步骤，
+理由是实测发现**不同 providerId 可以拼出完全相同的请求**：
+
+| providerId | baseUrl | 鉴权 |
+|---|---|---|
+| `account:zai-start-plan` | `https://zcode.z.ai/api/v1/zcode-plan/anthropic` | `Bearer <zcodejwttoken>` |
+| `account:bigmodel-start-plan` | **同一个** | **同一个** |
+
+`zcodejwttoken` 只有一个，两条路由的 baseUrl 又相同 —— 请求头逐字节一致。换路由过去
+必然得到同一个结果，只是多一次往返。`dedupeRoutes()` 因此按「baseUrl + 全部请求头」
+做请求签名去重，保留优先级最高的那条。
+
+本机实测（2026-10-27，客户端 3.16.3，本机仅 `zcodejwttoken` + 一条 bigmodel coding-plan key）：
+
+```
+GLM-5.3-Flash: 10 routes -> 3 buildable -> 2 after dedup
+   account:bigmodel-start-plan      https://zcode.z.ai/api/v1/zcode-plan/anthropic
+   account:bigmodel-team-coding-plan https://open.bigmodel.cn/api/anthropic
+   skipped: 7 routes (API_KEY_MISSING)  ← coding-plan key 只覆盖 bigmodel-team 这一条
+
+GLM-5.3: 8 routes -> 1 buildable -> 1 after dedup
+GLM-5.2: 2 routes -> 2 buildable -> 1 after dedup
+```
+
+注意 `buildable` 那一步：缺凭证的路由不是错误，只是从链上掉队。只有**整条链**都建不起来
+才算鉴权失败，此时报链首那条的错误（它最能说明缺哪个家族的凭证）。
+
+哪些失败会触发切换（`isFailoverError`）：`QUOTA` / `CONCURRENCY` / `AUTH` /
+`TOKEN_MISSING` / `API_KEY_MISSING` / `CARD_ID_MISSING` / `UPSTREAM` / `TRANSPORT` / `TIMEOUT`。
+**不**切换的：`PARAM`（请求体本身有问题，换端点只会同样 400，还会掩盖真因）、
+`ABORTED`（用户取消）、`BAD_RESPONSE`。
+
+实测的切换链路（本机无可用套餐，所以两次都是业务层错误 —— 这恰好证明切换真的发生了）：
+
+```
+chain    account:bigmodel-start-plan → account:bigmodel-team-coding-plan  (auto-failover)
+  deduped 1 route(s) whose request would be identical
+  route    account:bigmodel-start-plan unavailable (QUOTA) → next: 1005 exceed quota limit
+  route    account:bigmodel-team-coding-plan unavailable (QUOTA): 1309 套餐已到期
+```
+
+**仍未验证**：切换到某条路由后真的拿到正常内容流。本机账号没有任何可用套餐，这一点
+与 0.7.0 的验证边界相同。
+
 ---
 
 ## 9. 推荐调用方式（可直接照抄）

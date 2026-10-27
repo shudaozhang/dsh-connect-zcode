@@ -27,8 +27,11 @@ import {
   PlanStreamMapper,
   SESSION_TITLE_FALLBACK,
   ZcodePlanAdapter,
+  applyRouteExclusions,
+  applyRoutePins,
   buildPlanModels,
   defaultReasoningLevelOf,
+  describeRouteChain,
   finishReasonFor,
   loadModelTraits,
   localSessionTitle,
@@ -306,8 +309,8 @@ test('defaultReasoningLevelOf picks max when offered, else the strongest declare
 // 模型清单 + id 规则
 // ---------------------------------------------------------------------------
 
-test('buildPlanModels exposes ids as <providerId>#<modelId> in route-priority order', () => {
-  const models = buildPlanModels(PROVIDERS)
+test('buildPlanModels(explicit) exposes ids as <providerId>#<modelId> in route-priority order', () => {
+  const models = buildPlanModels(PROVIDERS, 'explicit')
   assert.deepEqual(models.map((entry) => entry.id), [
     'account:zai-start-plan#GLM-5.3-Flash',
     'account:zai-start-plan#GLM-5.2',
@@ -321,43 +324,148 @@ test('buildPlanModels exposes ids as <providerId>#<modelId> in route-priority or
   assert.deepEqual(flash.map((entry) => entry.providerId), ['account:zai-start-plan', 'account:zai-individual-coding-plan'])
   assert.equal(models[0].authKind, 'bearer-jwt')
   assert.equal(models[3].authKind, 'api-key')
+  // Explicit mode never has a fallback chain: one entry, one route.
+  for (const entry of models) assert.equal(entry.routes.length, 1)
 })
 
-test('selectPlanModels: empty allow list = everything, block list wins, unknown ids are reported', () => {
+test('buildPlanModels (default = merged) collapses each model into one entry with its route chain', () => {
   const models = buildPlanModels(PROVIDERS)
-  assert.equal(selectPlanModels(models, [], []).models.length, models.length)
+  assert.deepEqual(models.map((entry) => entry.id), ['GLM-5.3-Flash', 'GLM-5.2', 'GLM-5-Turbo', 'GLM-5.3'])
+  // GLM-5.3-Flash lives on both routes; merged mode keeps ONE entry and records both routes,
+  // in plan-priority order (start-plan before individual-coding-plan).
+  const flash = models.find((entry) => entry.modelId === 'GLM-5.3-Flash')
+  assert.deepEqual(flash?.routes.map((route) => route.providerId), [
+    'account:zai-start-plan',
+    'account:zai-individual-coding-plan',
+  ])
+  assert.equal(flash?.providerId, 'account:zai-start-plan', 'the first chain entry is the preferred route')
+  // A model only one route serves still gets a chain of length 1.
+  const turbo = models.find((entry) => entry.modelId === 'GLM-5-Turbo')
+  assert.deepEqual(turbo?.routes.map((route) => route.providerId), ['account:zai-start-plan'])
+})
 
-  const allow = selectPlanModels(models, ['account:zai-individual-coding-plan#GLM-5.3'])
+test('selectPlanModels(explicit): empty allow list = everything, block list wins, unknown ids are reported', () => {
+  const models = buildPlanModels(PROVIDERS, 'explicit')
+  assert.equal(selectPlanModels(models, [], [], 'explicit').models.length, models.length)
+
+  const allow = selectPlanModels(models, ['account:zai-individual-coding-plan#GLM-5.3'], [], 'explicit')
   assert.deepEqual(allow.models.map((entry) => entry.id), ['account:zai-individual-coding-plan#GLM-5.3'])
   assert.deepEqual(allow.unknownEnabledIds, [])
 
-  const block = selectPlanModels(models, [], ['account:zai-start-plan#GLM-5.2'])
+  const block = selectPlanModels(models, [], ['account:zai-start-plan#GLM-5.2'], 'explicit')
   assert.equal(block.models.length, models.length - 1)
   assert.ok(!block.models.some((entry) => entry.id === 'account:zai-start-plan#GLM-5.2'))
 
-  const both = selectPlanModels(models, ['account:zai-start-plan#GLM-5.3-Flash', 'account:zai-start-plan#GLM-5.2'], ['account:zai-start-plan#GLM-5.2'])
+  const both = selectPlanModels(
+    models,
+    ['account:zai-start-plan#GLM-5.3-Flash', 'account:zai-start-plan#GLM-5.2'],
+    ['account:zai-start-plan#GLM-5.2'],
+    'explicit',
+  )
   assert.deepEqual(both.models.map((entry) => entry.id), ['account:zai-start-plan#GLM-5.3-Flash'])
 
-  const typos = selectPlanModels(models, ['nope'], ['also-nope'])
+  const typos = selectPlanModels(models, ['nope'], ['also-nope'], 'explicit')
   assert.deepEqual(typos.models, [])
   assert.deepEqual(typos.unknownEnabledIds, ['nope'])
   assert.deepEqual(typos.unknownDisabledIds, ['also-nope'])
 })
 
-test('selectPlanModels also accepts a bare modelId and a slash form (hand-written configs must not silently fail)', () => {
+test('selectPlanModels (merged) accepts every id spelling without losing the model', () => {
   const models = buildPlanModels(PROVIDERS)
-  // A bare model id means "don't hide this model", i.e. it matches every route serving it.
+  // A bare model id is the native merged spelling.
   const bare = selectPlanModels(models, ['GLM-5.3-Flash'])
-  assert.deepEqual(bare.models.map((entry) => entry.providerId), ['account:zai-start-plan', 'account:zai-individual-coding-plan'])
+  assert.deepEqual(bare.models.map((entry) => entry.id), ['GLM-5.3-Flash'])
   assert.deepEqual(bare.unknownEnabledIds, [])
 
+  // An explicit-style id still resolves to the same single merged entry — configs written for
+  // 0.7.0 must not silently vanish when the mode changes.
+  const explicitId = selectPlanModels(models, ['account:zai-individual-coding-plan#GLM-5.3-Flash'])
+  assert.deepEqual(explicitId.models.map((entry) => entry.id), ['GLM-5.3-Flash'])
+  assert.deepEqual(explicitId.unknownEnabledIds, [])
+
   const slash = selectPlanModels(models, ['account:zai-individual-coding-plan/GLM-5.3'])
-  assert.deepEqual(slash.models.map((entry) => entry.id), ['account:zai-individual-coding-plan#GLM-5.3'])
+  assert.deepEqual(slash.models.map((entry) => entry.id), ['GLM-5.3'])
   assert.deepEqual(slash.unknownEnabledIds, [])
 
   // The block list accepts the same spellings.
   const blocked = selectPlanModels(models, [], ['GLM-5.3-Flash'])
   assert.ok(!blocked.models.some((entry) => entry.modelId === 'GLM-5.3-Flash'))
+
+  const typos = selectPlanModels(models, ['nope'], ['also-nope'])
+  assert.deepEqual(typos.unknownEnabledIds, ['nope'])
+  assert.deepEqual(typos.unknownDisabledIds, ['also-nope'])
+})
+
+test('applyRoutePins moves an explicitly pinned route to the head of the chain but keeps the fallbacks', () => {
+  const models = buildPlanModels(PROVIDERS)
+  const flash = /** @type {any} */ (models.find((entry) => entry.modelId === 'GLM-5.3-Flash'))
+  // Pinning the coding-plan route must reorder, not truncate: auto-failover stays available.
+  const pinned = applyRoutePins(flash, ['account:zai-individual-coding-plan#GLM-5.3-Flash'])
+  assert.deepEqual(pinned.routes.map((route) => route.providerId), [
+    'account:zai-individual-coding-plan',
+    'account:zai-start-plan',
+  ])
+  assert.equal(pinned.providerId, 'account:zai-individual-coding-plan')
+  // A bare model id expresses no route preference and must leave the order alone.
+  assert.deepEqual(applyRoutePins(flash, ['GLM-5.3-Flash']).routes.map((route) => route.providerId), [
+    'account:zai-start-plan',
+    'account:zai-individual-coding-plan',
+  ])
+})
+
+test('describeRouteChain collapses routes into plan kinds, so the picker text stays readable', () => {
+  const models = buildPlanModels(PROVIDERS)
+  const flash = /** @type {any} */ (models.find((entry) => entry.modelId === 'GLM-5.3-Flash'))
+  // individual + team coding plans are the same user-facing concept: one label.
+  assert.equal(describeRouteChain(flash.routes), 'start → coding (2 routes)')
+  // A single route needs no arrow and no count.
+  const turbo = /** @type {any} */ (models.find((entry) => entry.modelId === 'GLM-5-Turbo'))
+  assert.equal(describeRouteChain(turbo.routes), 'start')
+  // The real 10-route chain must stay short: kinds only, never 10 provider ids.
+  const wide = [
+    { providerId: 'a', planKind: 'start-plan' },
+    { providerId: 'b', planKind: 'start-plan' },
+    { providerId: 'c', planKind: 'individual-coding-plan' },
+    { providerId: 'd', planKind: 'team-coding-plan' },
+    { providerId: 'e', planKind: 'offpeak-idle-plan' },
+    { providerId: 'f', planKind: 'highspeed-card' },
+  ]
+  const described = describeRouteChain(/** @type {any} */ (wide))
+  assert.equal(described, 'start → coding → idle → fast (6 routes)')
+  assert.ok(described.length < 40, `the description must fit in a model picker, got ${described.length} chars`)
+  assert.equal(describeRouteChain([]), '')
+})
+
+test('applyRouteExclusions removes one route from the chain but keeps the model', () => {
+  const models = buildPlanModels(PROVIDERS)
+  const flash = /** @type {any} */ (models.find((entry) => entry.modelId === 'GLM-5.3-Flash'))
+  // Denying one specific route must NOT hide the model: the user said "don't burn this plan",
+  // not "I don't want this model".
+  const one = applyRouteExclusions(flash, ['account:zai-start-plan#GLM-5.3-Flash'])
+  assert.deepEqual(one?.routes.map((route) => route.providerId), ['account:zai-individual-coding-plan'])
+  assert.equal(one?.providerId, 'account:zai-individual-coding-plan', 'the head moves to the surviving route')
+  // Denying nothing leaves the entry untouched (same object, no needless copy).
+  assert.equal(applyRouteExclusions(flash, []), flash)
+  assert.equal(applyRouteExclusions(flash, ['GLM-5.3-Flash']), flash, 'a bare model id is not a route exclusion')
+  // Denying every route means the model has nowhere to go: undefined, so the caller drops it.
+  const both = applyRouteExclusions(flash, [
+    'account:zai-start-plan#GLM-5.3-Flash',
+    'account:zai-individual-coding-plan#GLM-5.3-Flash',
+  ])
+  assert.equal(both, undefined)
+})
+
+test('adapter hides the whole model only when the deny list names the model itself', async () => {
+  // A bare id hides the model; a per-route `#` id only drops that route.
+  const bare = await makeAdapter({ config: { planDisabledModelIds: ['GLM-5.3-Flash'] } }).listModels(PLAN_PROVIDER_ID)
+  assert.ok(!bare.some((entry) => entry.id === 'GLM-5.3-Flash'))
+
+  const oneRoute = await makeAdapter({
+    config: { planDisabledModelIds: ['account:zai-start-plan#GLM-5.3-Flash'] },
+  }).listModels(PLAN_PROVIDER_ID)
+  const flash = oneRoute.find((entry) => entry.id === 'GLM-5.3-Flash')
+  assert.ok(flash !== undefined, 'the model must survive a single-route denial')
+  assert.equal(flash?.description, 'coding')
 })
 
 test('adapter parses the three model-id spellings to the same route', () => {
@@ -376,18 +484,37 @@ test('adapter parses the three model-id spellings to the same route', () => {
     providerId: 'account:zai-start-plan',
     modelId: 'GLM-5.3-Flash',
   })
+  // In merged mode an explicit id for the OTHER route still reports that route (it is a pin).
+  assert.deepEqual(adapter.parseModel('account:zai-individual-coding-plan#GLM-5.3-Flash'), {
+    providerId: 'account:zai-individual-coding-plan',
+    modelId: 'GLM-5.3-Flash',
+  })
   assert.equal(adapter.parseModel(''), undefined)
   assert.equal(adapter.parseModel('nope-nope'), undefined)
 })
 
-test('listModels advertises the DSH ids with per-model modalities', async () => {
+test('listModels (default merged) advertises one entry per model with the fallback chain', async () => {
   const adapter = makeAdapter()
+  const models = await adapter.listModels(PLAN_PROVIDER_ID)
+  assert.deepEqual(models.map((entry) => entry.id), ['GLM-5.3-Flash', 'GLM-5.2', 'GLM-5-Turbo', 'GLM-5.3'])
+  const flash = models.find((entry) => entry.id === 'GLM-5.3-Flash')
+  assert.deepEqual(flash?.inputModalities, ['text', 'image'])
+  assert.equal(flash?.description, 'start → coding (2 routes)')
+  const turbo = models.find((entry) => entry.id === 'GLM-5-Turbo')
+  assert.deepEqual(turbo?.inputModalities, ['text'])
+  for (const entry of models) {
+    assert.equal(entry.provider, PLAN_PROVIDER_ID)
+    assert.doesNotMatch(entry.id, /#/u, 'merged ids are bare model ids')
+  }
+})
+
+test('listModels (explicit) advertises one entry per route-model pair', async () => {
+  const adapter = makeAdapter({ config: { planRouteMode: 'explicit' } })
   const models = await adapter.listModels(PLAN_PROVIDER_ID)
   assert.equal(models.length, 5)
   const flash = models.find((entry) => entry.id === 'account:zai-start-plan#GLM-5.3-Flash')
   assert.deepEqual(flash?.inputModalities, ['text', 'image'])
-  const turbo = models.find((entry) => entry.id === 'account:zai-start-plan#GLM-5-Turbo')
-  assert.deepEqual(turbo?.inputModalities, ['text'])
+  assert.equal(flash?.description, 'account:zai-start-plan')
   for (const entry of models) {
     assert.equal(entry.provider, PLAN_PROVIDER_ID)
     assert.match(entry.id, /^account:[^#]+#[^#]+$/u)
@@ -397,18 +524,18 @@ test('listModels advertises the DSH ids with per-model modalities', async () => 
 test('listModels honours the plan channel own planEnabledModelIds / planDisabledModelIds', async () => {
   // The plan channel has its OWN switches: the same DSH model id means a different route here,
   // so sharing the legacy `enabledModelIds` would silently cross-filter the two channels.
-  const enabled = await makeAdapter({ config: { planEnabledModelIds: ['account:zai-individual-coding-plan#GLM-5.3'] } }).listModels(PLAN_PROVIDER_ID)
-  assert.deepEqual(enabled.map((entry) => entry.id), ['account:zai-individual-coding-plan#GLM-5.3'])
+  const enabled = await makeAdapter({ config: { planEnabledModelIds: ['GLM-5.3'] } }).listModels(PLAN_PROVIDER_ID)
+  assert.deepEqual(enabled.map((entry) => entry.id), ['GLM-5.3'])
 
-  const disabled = await makeAdapter({ config: { planDisabledModelIds: ['account:zai-start-plan#GLM-5.2'] } }).listModels(PLAN_PROVIDER_ID)
-  assert.ok(!disabled.some((entry) => entry.id === 'account:zai-start-plan#GLM-5.2'))
-  assert.equal(disabled.length, 4)
+  const disabled = await makeAdapter({ config: { planDisabledModelIds: ['GLM-5.2'] } }).listModels(PLAN_PROVIDER_ID)
+  assert.ok(!disabled.some((entry) => entry.id === 'GLM-5.2'))
+  assert.equal(disabled.length, 3)
 
   // The legacy fields must NOT leak into the plan channel when the plan fields exist.
   const legacyIgnored = await makeAdapter({
-    config: { enabledModelIds: ['account:zai-individual-coding-plan#GLM-5.3'], planEnabledModelIds: [] },
+    config: { enabledModelIds: ['GLM-5.3'], planEnabledModelIds: [] },
   }).listModels(PLAN_PROVIDER_ID)
-  assert.equal(legacyIgnored.length, 5, 'an empty planEnabledModelIds means "everything", not "fall back to the legacy list"')
+  assert.equal(legacyIgnored.length, 4, 'an empty planEnabledModelIds means "everything", not "fall back to the legacy list"')
 })
 
 test('listModels falls back to the legacy enabledModelIds / disabledModelIds for a config without the plan fields', async () => {
@@ -418,7 +545,7 @@ test('listModels falls back to the legacy enabledModelIds / disabledModelIds for
     zcodeDataRoot: { dataBaseDir: 'D:/fake-zcode' },
     zcodeDataBaseDir: '',
     zcodeCliPath: '',
-    enabledModelIds: ['account:zai-individual-coding-plan#GLM-5.3'],
+    enabledModelIds: ['GLM-5.3'],
     disabledModelIds: [],
     retryPolicy: { mode: 'normal', maxRetries: 5 },
   }
@@ -428,22 +555,24 @@ test('listModels falls back to the legacy enabledModelIds / disabledModelIds for
     providers: () => PROVIDERS,
   })
   adapter.traitSourceCache = { rules: MODEL_RULES, source: 'injected' }
-  assert.deepEqual((await adapter.listModels(PLAN_PROVIDER_ID)).map((entry) => entry.id), ['account:zai-individual-coding-plan#GLM-5.3'])
+  assert.deepEqual((await adapter.listModels(PLAN_PROVIDER_ID)).map((entry) => entry.id), ['GLM-5.3'])
 })
 
 test('resolveModel reports context, output cap, modalities and reasoning from the release rules', async () => {
   const adapter = makeAdapter()
-  const flash = await adapter.resolveModel(PLAN_PROVIDER_ID, 'account:zai-start-plan#GLM-5.3-Flash')
+  const flash = await adapter.resolveModel(PLAN_PROVIDER_ID, 'GLM-5.3-Flash')
   assert.equal(flash.provider, PLAN_PROVIDER_ID)
-  assert.equal(flash.id, 'account:zai-start-plan#GLM-5.3-Flash')
+  assert.equal(flash.id, 'GLM-5.3-Flash')
   assert.equal(flash.name, 'GLM-5.3-Flash')
   assert.deepEqual(flash.context, { contextWindow: 1000000 })
   assert.equal(flash.defaultMaxTokens, 128000)
   assert.deepEqual(flash.inputModalities, ['text', 'image'])
   assert.deepEqual(flash.reasoning?.efforts.map((effort) => effort.id), ['low', 'high', 'max'])
   assert.equal(flash.reasoning?.defaultEffort, 'max')
+  // The description shows the whole chain, so the picker explains what will be tried.
+  assert.equal(flash.description, 'start → coding (2 routes)')
 
-  const turbo = await adapter.resolveModel(PLAN_PROVIDER_ID, 'account:zai-start-plan#GLM-5-Turbo')
+  const turbo = await adapter.resolveModel(PLAN_PROVIDER_ID, 'GLM-5-Turbo')
   assert.deepEqual(turbo.context, { contextWindow: 200000 })
   assert.equal(turbo.defaultMaxTokens, 64000)
   assert.deepEqual(turbo.reasoning?.efforts.map((effort) => effort.id), ['disabled', 'enabled'])
@@ -1019,6 +1148,9 @@ test('stream() uses Bearer auth for a start-plan route and reports a quota answe
   /** @type {any} */
   let headers
   const adapter = makeAdapter({
+    // Explicit mode pins exactly one route, so this isolates the start-plan header shape from
+    // the merged-mode failover chain (which would go on to try the coding-plan route).
+    config: { planRouteMode: 'explicit' },
     fetchImpl: /** @type {typeof fetch} */ (async (_url, init) => {
       headers = init?.headers
       // zcode-plan answers HTTP 200 with a business error code — the 200-must-still-be-an-error path.
@@ -1060,9 +1192,150 @@ test('stream() rejects an unparseable model id with INVALID_REQUEST and a hint a
   const adapter = makeAdapter()
   await assert.rejects(collect(adapter.stream({ ...baseRequest, model: 'totally-unknown' })), (error) => {
     assert.equal(error.code, 'INVALID_REQUEST')
-    assert.match(error.message, /account:zai-start-plan#GLM-5.3-Flash/u)
+    assert.match(error.message, /GLM-5\.3-Flash/u)
     return true
   })
+})
+
+// ---------------------------------------------------------------------------
+// 自动切换：merged 模式下按套餐优先级依次尝试
+// ---------------------------------------------------------------------------
+
+/** 一条正常产出文本的 SSE。 */
+const OK_SSE = [
+  'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":7,"output_tokens":0}}}\n\n',
+  'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+  'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong"}}\n\n',
+  'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+  'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":3},"delta":{"stop_reason":"end_turn"}}\n\n',
+  'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+].join('')
+
+/** 额度用尽的业务错误（zcode-plan 用 HTTP 200 携带它）。 */
+const QUOTA_BODY = '{"code":1005,"msg":"exceed quota limit","logid":"2026102708261034"}'
+
+test('stream() fails over to the next plan route when the first one is out of quota', async () => {
+  /** @type {{ url: string, auth: string | undefined }[]} */
+  const seen = []
+  const adapter = makeAdapter({
+    fetchImpl: /** @type {typeof fetch} */ (async (url, init) => {
+      const auth = /** @type {any} */ (init?.headers)?.authorization
+      seen.push({ url: String(url), auth })
+      if (seen.length === 1) {
+        // Start Plan is out of quota.
+        return new Response(QUOTA_BODY, { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      // The coding-plan route answers normally.
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(OK_SSE))
+            controller.close()
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      )
+    }),
+  })
+  const chunks = await collect(adapter.stream({ ...baseRequest, model: 'GLM-5.3-Flash' }))
+  // Two attempts: start-plan first (quota), then coding-plan (works).
+  assert.equal(seen.length, 2)
+  assert.equal(seen[0].url, 'https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages')
+  assert.equal(seen[0].auth, 'Bearer jwt-token')
+  assert.equal(seen[1].url, 'https://api.z.ai/api/anthropic/v1/messages')
+  assert.equal(seen[1].auth, undefined, 'the coding-plan route uses x-api-key, not the Bearer JWT')
+  // The turn completes normally on the second route.
+  assert.ok(chunks.some((chunk) => chunk.type === 'text-delta' && chunk.text === 'pong'))
+  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
+})
+
+test('stream() does NOT fail over on a request-shape error: PARAM would fail identically everywhere', async () => {
+  let calls = 0
+  const adapter = makeAdapter({
+    fetchImpl: /** @type {typeof fetch} */ (async () => {
+      calls += 1
+      return new Response('{"code":3001,"msg":"parameter error"}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }),
+  })
+  await assert.rejects(collect(adapter.stream({ ...baseRequest, model: 'GLM-5.3-Flash' })), (error) => {
+    assert.equal(error.code, 'INVALID_REQUEST')
+    assert.match(error.message, /3001/u)
+    return true
+  })
+  assert.equal(calls, 1, 'a parameter error must not be retried on another route')
+})
+
+test('stream() reports the whole attempt chain when every plan route fails', async () => {
+  const adapter = makeAdapter({
+    fetchImpl: /** @type {typeof fetch} */ (async () => new Response(QUOTA_BODY, { status: 200, headers: { 'content-type': 'application/json' } })),
+  })
+  await assert.rejects(collect(adapter.stream({ ...baseRequest, model: 'GLM-5.3-Flash' })), (error) => {
+    assert.equal(error.code, 'RATE_LIMIT')
+    assert.match(error.message, /1005/u)
+    return true
+  })
+})
+
+test('stream() pins a single route in explicit mode (no failover, the 0.7.0 behaviour)', async () => {
+  /** @type {string[]} */
+  const urls = []
+  const adapter = makeAdapter({
+    config: { planRouteMode: 'explicit' },
+    fetchImpl: /** @type {typeof fetch} */ (async (url) => {
+      urls.push(String(url))
+      return new Response(QUOTA_BODY, { status: 200, headers: { 'content-type': 'application/json' } })
+    }),
+  })
+  await assert.rejects(collect(adapter.stream({ ...baseRequest, model: 'account:zai-start-plan#GLM-5.3-Flash' })), (error) => {
+    assert.equal(error.code, 'RATE_LIMIT')
+    return true
+  })
+  assert.deepEqual(urls, ['https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages'], 'explicit mode must never touch another route')
+})
+
+test('stream() skips a route whose credential form is missing and uses the next one', async () => {
+  /** @type {string[]} */
+  const urls = []
+  const adapter = makeAdapter({
+    // No coding-plan API key: the individual-coding-plan route cannot be built at all, so the
+    // chain must silently drop it and still serve GLM-5.3 (only that route declares it).
+    credentials: { zcodejwttoken: 'jwt-token' },
+    fetchImpl: /** @type {typeof fetch} */ (async (url) => {
+      urls.push(String(url))
+      return new Response(QUOTA_BODY, { status: 200, headers: { 'content-type': 'application/json' } })
+    }),
+  })
+  await assert.rejects(collect(adapter.stream({ ...baseRequest, model: 'GLM-5.3' })), (error) => {
+    // The only route serving GLM-5.3 has no api-key, so this is an AUTH failure, not a silent no-op.
+    assert.equal(error.code, 'AUTH')
+    assert.match(error.message, /coding-plan API Key|api-key/u)
+    return true
+  })
+  assert.deepEqual(urls, [], 'no request may be sent without a usable credential')
+})
+
+test('a route missing its credential is dropped from the chain without failing the turn', async () => {
+  /** @type {string[]} */
+  const urls = []
+  const adapter = makeAdapter({
+    // JWT present, no coding-plan key: GLM-5.3-Flash can still be served by start-plan.
+    credentials: { zcodejwttoken: 'jwt-token' },
+    fetchImpl: /** @type {typeof fetch} */ (async (url) => {
+      urls.push(String(url))
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(OK_SSE))
+            controller.close()
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      )
+    }),
+  })
+  const chunks = await collect(adapter.stream({ ...baseRequest, model: 'GLM-5.3-Flash' }))
+  assert.deepEqual(urls, ['https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages'], 'only the buildable route is attempted')
+  assert.ok(chunks.some((chunk) => chunk.type === 'text-delta' && chunk.text === 'pong'))
 })
 
 // ---------------------------------------------------------------------------

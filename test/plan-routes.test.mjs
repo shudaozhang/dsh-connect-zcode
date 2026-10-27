@@ -35,10 +35,13 @@ import {
   inferFamily,
   inferPlanKind,
   loadPlanCatalogue,
+  mergePlanModels,
   normalizeProviderRule,
   normalizeRelease,
   parsePlanModelId,
+  parsePlanModelRef,
   planModelId,
+  routesForModel,
 } from '../lib/plan-routes.js'
 
 /** 一条最小可用的 release provider 规则。 */
@@ -261,6 +264,72 @@ test('expandPlanModels 展开成路由 × 模型并按优先级排序', () => {
 
 test('expandPlanModels 对空表返回空数组', () => {
   assert.deepEqual(expandPlanModels([]), [])
+})
+
+// ── parsePlanModelRef / routesForModel / mergePlanModels ───────────────────
+
+test('parsePlanModelRef 只在用户显式写路由时给出 providerId', () => {
+  // 显式写法：路由被钉死
+  assert.deepEqual(parsePlanModelRef('account:zai-start-plan#GLM-5.3-Flash'), {
+    providerId: 'account:zai-start-plan',
+    modelId: 'GLM-5.3-Flash',
+  })
+  assert.deepEqual(parsePlanModelRef('account:zai-start-plan/GLM-5.3-Flash'), {
+    providerId: 'account:zai-start-plan',
+    modelId: 'GLM-5.3-Flash',
+  })
+  // 裸 modelId：只给 modelId，**不**替用户选路由 —— merged 模式靠这个区分
+  // 「钉死一条路由」和「这个模型，路由你挑」。
+  assert.deepEqual(parsePlanModelRef('GLM-5.3-Flash'), { modelId: 'GLM-5.3-Flash' })
+  assert.equal(parsePlanModelRef(''), undefined)
+  assert.equal(parsePlanModelRef('   '), undefined)
+  assert.equal(parsePlanModelRef(undefined), undefined)
+  assert.equal(parsePlanModelRef('#GLM-5.3'), undefined)
+  assert.equal(parsePlanModelRef('account:zai-start-plan#'), undefined)
+})
+
+test('routesForModel 返回该模型的全部路由并按套餐优先级排序', () => {
+  const providers = normalizeRelease(release([
+    // 故意逆序声明：highspeed 在前，start-plan 在后，排序必须把它们纠正过来。
+    rule({ providerId: 'account:zai-highspeed-card', config: { access: { accountType: 'zai', mode: 'highspeed' }, api: { baseUrl: 'https://zcode.z.ai/api/v1/highspeed/anthropic' }, builtinModelIds: ['GLM-5.3-Flash'] } }),
+    rule({ providerId: 'account:zai-individual-coding-plan', config: { access: { accountType: 'zai', mode: 'individual-coding-plan' }, api: { baseUrl: 'https://api.z.ai/api/anthropic' }, builtinModelIds: ['GLM-5.3-Flash'] } }),
+    rule({ providerId: 'account:zai-start-plan' }),
+  ]))
+  assert.deepEqual(routesForModel(providers, 'GLM-5.3-Flash').map((provider) => provider.providerId), [
+    'account:zai-start-plan',
+    'account:zai-individual-coding-plan',
+    'account:zai-highspeed-card',
+  ])
+  // GLM-5.2 只在 start-plan 上
+  assert.deepEqual(routesForModel(providers, 'GLM-5.2').map((provider) => provider.providerId), ['account:zai-start-plan'])
+  // 未知模型 / 空值
+  assert.deepEqual(routesForModel(providers, 'nope'), [])
+  assert.deepEqual(routesForModel(providers, ''), [])
+})
+
+test('mergePlanModels 把同一模型的多条路由合并成一条，链按优先级排序', () => {
+  const providers = normalizeRelease(release([
+    rule({ providerId: 'account:zai-individual-coding-plan', config: { access: { accountType: 'zai', mode: 'individual-coding-plan' }, api: { baseUrl: 'https://api.z.ai/api/anthropic' }, builtinModelIds: ['GLM-5.3-Flash', 'GLM-5.3'] } }),
+    rule({ providerId: 'account:zai-start-plan' }),
+  ]))
+  const merged = mergePlanModels(providers)
+  // 3 条路由 × 模型对 → 3 个不同模型（GLM-5.3-Flash 在两条路由上，只算一个）
+  assert.deepEqual(merged.map((entry) => entry.modelId), ['GLM-5.3-Flash', 'GLM-5.2', 'GLM-5.3'])
+  const flash = merged[0]
+  assert.deepEqual(flash.routes.map((provider) => provider.providerId), [
+    'account:zai-start-plan',
+    'account:zai-individual-coding-plan',
+  ])
+  // 链首即首选路由，元数据跟着它走
+  assert.equal(flash.providerId, 'account:zai-start-plan')
+  assert.equal(flash.baseUrl, 'https://zcode.z.ai/api/v1/zcode-plan/anthropic')
+  assert.equal(flash.authKind, 'bearer-jwt')
+  // 只被一条路由声明的模型，链长 1
+  assert.equal(merged[1].routes.length, 1)
+})
+
+test('mergePlanModels 对空表返回空数组', () => {
+  assert.deepEqual(mergePlanModels([]), [])
 })
 
 test('findProvider 按 providerId 精确匹配', () => {

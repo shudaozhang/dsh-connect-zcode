@@ -55,3 +55,11 @@ test('the direct-channel commands are documented as not spawning the agent', () 
   assert.match(byName.get('plan-turn').summary, /direct HTTP/)
   assert.match(byName.get('login').summary, /OAuth/)
 })
+
+test('plan-models documents both projections, because the picker and the table disagree by design', () => {
+  // 5 merged models vs 22 route-model pairs is the single most confusing thing about this
+  // channel. The usage line has to make `--mode` discoverable, or users conclude models are
+  // missing from the picker.
+  const entry = COMMANDS.find((candidate) => candidate.name === 'plan-models')
+  assert.match(entry.usage, /--mode merged\|explicit\|both/)
+})

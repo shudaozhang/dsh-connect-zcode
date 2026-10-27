@@ -113,6 +113,21 @@ test('resolveOptions unwraps, so the model selection survives the reference', ()
   assert.deepEqual(defaults.disabledModelIds, [])
 })
 
+test('planRouteMode defaults to merged (one model per entry, auto-failover) and accepts explicit', () => {
+  // The default is the user-visible promise: the picker shows each model once. Getting this
+  // wrong silently brings back the 22-entry route-per-model list.
+  assert.equal(resolveOptions(Config({})).planRouteMode, 'merged')
+  assert.equal(resolveOptions(Config({ planRouteMode: 'merged' })).planRouteMode, 'merged')
+  assert.equal(resolveOptions(Config({ planRouteMode: 'explicit' })).planRouteMode, 'explicit')
+  // A bad value is rejected by the schema itself, before resolveOptions runs — that is the
+  // stronger guarantee, so pin it rather than the (still present) coercion fallback.
+  assert.throws(() => Config({ planRouteMode: /** @type {any} */ ('nonsense') }), /planRouteMode/u)
+  // A config object that bypassed the schema still resolves to a usable mode.
+  assert.equal(resolveOptions(/** @type {any} */ ({ planRouteMode: 'nonsense' })).planRouteMode, 'merged')
+  assert.equal(Config.dict.planRouteMode.meta?.volatile, undefined,
+    'the mode is a structural setting, not a per-session form toggle')
+})
+
 test('a volatile update is visible through the SAME config object', async () => {
   // This is why `options()` cannot key its cache on object identity alone: the Loader
   // commits a volatile edit in place (`updateVolatile`), leaving the config object
