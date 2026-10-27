@@ -94,8 +94,26 @@ test('every switch writes this plugin\'s own config through ConfigForm.mutate', 
   assert.match(source, /configForms/u)
   assert.match(source, /controller\.mutate\(/u)
   assert.match(source, /op: "set"/u)
-  assert.match(source, /path: \["disabledModelIds"\]/u)
-  assert.match(source, /path: \["enabledModelIds"\]/u)
+  // Both channels' fields must be writable: the plan channel owns `plan*`, the legacy
+  // agent channel owns the bare names. Writing only the legacy pair is the reported
+  // defect — with `transport: "plan"` the card could not enable a single served model.
+  assert.match(source, /path: \[channel\.disabledField\]/u)
+  assert.match(source, /path: \[channel\.enabledField\]/u)
+  assert.match(source, /planEnabledModelIds/u)
+  assert.match(source, /planDisabledModelIds/u)
+})
+
+test('the card is channel-aware: it does not hard-code one provider id', () => {
+  // THE DEFECT THIS LOCKS DOWN. The card used to declare `PROVIDER = "zcode-cli"` and draw
+  // only that catalogue group. Once `transport: "plan"` became the default, that group no
+  // longer exists, so the row list degenerated to the fifteen stale `disabledModelIds`
+  // entries from the agent era — drawn greyed out, "已启用 0/15" — while the four models the
+  // plugin actually served had no switches at all.
+  assert.doesNotMatch(source, /const PROVIDER = "zcode-cli"/u, 'the provider must not be hard-coded')
+  assert.match(source, /provider: "zcode-plan"/u)
+  assert.match(source, /provider: "zcode-cli"/u)
+  // Each channel must be read from its OWN catalogue group.
+  assert.match(source, /candidate\.id === channel\.provider/u)
 })
 
 test('the panel degrades instead of throwing when the Host API is missing', () => {

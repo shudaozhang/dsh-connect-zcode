@@ -265,20 +265,34 @@ test('a host that never serves this plugin reports unavailable with the served l
 // a deliberately disabled model look like one that went missing.
 
 /**
- * A model catalogue that behaves like the Host's: filtered by the config it is given.
+ * A model catalogue that behaves like the Host's: each channel's group is filtered by the
+ * config fields THAT CHANNEL owns.
+ *
+ * The two channels are deliberately separate — `zcode-plan` reads `planEnabledModelIds` /
+ * `planDisabledModelIds`, `zcode-cli` reads `enabledModelIds` / `disabledModelIds`. Sharing
+ * one list is what produced the reported defect: with `transport: "plan"` the `zcode-cli`
+ * group is absent, so the card fell back to the fifteen stale `disabledModelIds` entries and
+ * hid the models actually being served.
  *
  * @param {() => any} readValue - reads the current config document.
- * @param {ReadonlyArray<{ id: string, name: string }>} all - every model upstream reports.
+ * @param {{ plan?: ReadonlyArray<{ id: string, name: string }>, cli?: ReadonlyArray<{ id: string, name: string }> }} models
+ *   every model upstream reports, per channel.
  * @param {any} [staleBy] - when set, the catalogue keeps answering with the document as it
  *   was when this snapshot was taken, which is what a read already in flight (or one
  *   answered before the write committed) looks like.
  * @returns {any} the `remote.session` surface the directory talks to.
  */
-function filteredCatalogueRemote(readValue, all, staleBy) {
-  const visible = () => {
+function filteredCatalogueRemote(readValue, models, staleBy) {
+  /**
+   * @param {string} enabledField - that channel's allow list.
+   * @param {string} disabledField - that channel's deny list.
+   * @param {ReadonlyArray<{ id: string, name: string }>} all - that channel's catalogue.
+   * @returns {any[]} the visible models.
+   */
+  const visible = (enabledField, disabledField, all) => {
     const value = (staleBy ?? readValue()) ?? {}
-    const disabled = Array.isArray(value.disabledModelIds) ? value.disabledModelIds : []
-    const allow = Array.isArray(value.enabledModelIds) ? value.enabledModelIds : []
+    const disabled = Array.isArray(value[disabledField]) ? value[disabledField] : []
+    const allow = Array.isArray(value[enabledField]) ? value[enabledField] : []
     return all.filter((model) => {
       if (disabled.includes(model.id)) return false
       if (allow.length === 0) return true
@@ -287,7 +301,21 @@ function filteredCatalogueRemote(readValue, all, staleBy) {
   }
   return {
     session: {
-      modelCatalog: async () => ({ ok: true, value: { groups: [{ id: 'zcode-cli', models: visible() }] } }),
+      modelCatalog: async () => ({
+        ok: true,
+        value: {
+          groups: [
+            // A channel that is not registered under the current `transport` emits NO group
+            // at all — that absence is exactly what the card must react to.
+            ...(models.plan === undefined
+              ? []
+              : [{ id: 'zcode-plan', models: visible('planEnabledModelIds', 'planDisabledModelIds', models.plan) }]),
+            ...(models.cli === undefined
+              ? []
+              : [{ id: 'zcode-cli', models: visible('enabledModelIds', 'disabledModelIds', models.cli) }]),
+          ],
+        },
+      }),
     },
   }
 }
@@ -332,33 +360,35 @@ function makeTogglingContext(configForms, remote) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 test('a switch reads off the config, so a filtered catalogue cannot flip it back', async () => {
-  const document = { enabledModelIds: [], disabledModelIds: [] }
+  const document = { enabledModelIds: [], disabledModelIds: [], planEnabledModelIds: [], planDisabledModelIds: [] }
   const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
-  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }, { id: 'GLM-5.2', name: 'GLM-5.2' }]
-  const remote = filteredCatalogueRemote(() => document, all)
+  const models = { plan: [{ id: 'GLM-5.3', name: 'GLM-5.3' }, { id: 'GLM-5.2', name: 'GLM-5.2' }] }
+  const remote = filteredCatalogueRemote(() => document, models)
   const exports = loadBundle({ react: reactStub })
   const { ctx, slots } = makeTogglingContext(configForms, remote)
   exports.apply(ctx)
   const { directory } = slots[0].options.inject()
   await settle()
 
+  const planSection = () => directory.getSnapshot().sections.find((section) => section.key === 'plan')
   assert.deepEqual(
-    directory.getSnapshot().rows.map((row) => [row.id, row.on]),
+    planSection().rows.map((row) => [row.id, row.on]),
     [['GLM-5.2', true], ['GLM-5.3', true]],
     'everything is on by default',
   )
 
-  await directory.setModel('GLM-5.3', false)
+  await directory.setModel('plan', 'GLM-5.3', false)
   // A click only edits the draft: no write, no catalogue re-read, so the list cannot grey
   // out under the pointer. This is the reported "勾选后列表短暂变灰" symptom.
-  assert.deepEqual(document.disabledModelIds, [], 'a switch must NOT write before Save')
+  assert.deepEqual(document.planDisabledModelIds, [], 'a switch must NOT write before Save')
   assert.equal(directory.getSnapshot().dirty, true, 'the panel must announce unsaved changes')
-  const drafted = directory.getSnapshot().rows.find((row) => row.id === 'GLM-5.3')
+  const drafted = planSection().rows.find((row) => row.id === 'GLM-5.3')
   assert.equal(drafted.on, false, 'the draft must be what the switch draws')
 
   await directory.save()
-  const afterOff = directory.getSnapshot().rows
-  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'save lands it as a disabledModelIds entry')
+  const afterOff = planSection().rows
+  assert.deepEqual(document.planDisabledModelIds, ['GLM-5.3'], 'save lands it in the PLAN channel deny list')
+  assert.deepEqual(document.disabledModelIds, [], 'the legacy list must stay untouched')
   assert.equal(directory.getSnapshot().dirty, false, 'a successful save clears the draft')
   // GLM-5.3 leaves the (filtered) catalogue but must still render, switched OFF.
   const off = afterOff.find((row) => row.id === 'GLM-5.3')
@@ -366,17 +396,17 @@ test('a switch reads off the config, so a filtered catalogue cannot flip it back
   assert.equal(off.on, false, 'the switch must read the config, not catalogue membership')
   assert.equal(off.reported, true, 'a deliberately disabled model is not "not reported"')
 
-  await directory.setModel('GLM-5.3', true)
-  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'still nothing written before Save')
+  await directory.setModel('plan', 'GLM-5.3', true)
+  assert.deepEqual(document.planDisabledModelIds, ['GLM-5.3'], 'still nothing written before Save')
   await directory.save()
-  assert.deepEqual(document.disabledModelIds, [], 'save clears the disable entry')
-  assert.equal(directory.getSnapshot().rows.find((row) => row.id === 'GLM-5.3').on, true)
+  assert.deepEqual(document.planDisabledModelIds, [], 'save clears the disable entry')
+  assert.equal(planSection().rows.find((row) => row.id === 'GLM-5.3').on, true)
 })
 
 test('Save is a single write and one catalogue re-read', async () => {
   // The pointed complaint was that each click re-read the filtered catalogue and blanked
   // the list. Exactly one write per Save is what removes that.
-  const document = { enabledModelIds: [], disabledModelIds: [] }
+  const document = { enabledModelIds: [], disabledModelIds: [], planEnabledModelIds: [], planDisabledModelIds: [] }
   const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
   const originalGet = configForms.get
   /** @type {string[]} */
@@ -391,8 +421,8 @@ test('Save is a single write and one catalogue re-read', async () => {
     return form
   }
   let catalogReads = 0
-  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }, { id: 'GLM-5.2', name: 'GLM-5.2' }]
-  const base = filteredCatalogueRemote(() => document, all)
+  const models = { plan: [{ id: 'GLM-5.3', name: 'GLM-5.3' }, { id: 'GLM-5.2', name: 'GLM-5.2' }] }
+  const base = filteredCatalogueRemote(() => document, models)
   const remote = {
     session: {
       modelCatalog: async () => {
@@ -409,9 +439,9 @@ test('Save is a single write and one catalogue re-read', async () => {
 
   const readsAfterMount = catalogReads
   // Three clicks in a row: zero writes, zero re-reads.
-  await directory.setModel('GLM-5.3', false)
-  await directory.setModel('GLM-5.2', false)
-  await directory.setModel('GLM-5.3', true)
+  await directory.setModel('plan', 'GLM-5.3', false)
+  await directory.setModel('plan', 'GLM-5.2', false)
+  await directory.setModel('plan', 'GLM-5.3', true)
   assert.deepEqual(namespacesWritten, [], 'no write until Save')
   assert.equal(catalogReads, readsAfterMount, 'no catalogue re-read until Save')
 
@@ -420,26 +450,26 @@ test('Save is a single write and one catalogue re-read', async () => {
     'Open must name the namespace the Host serves, exactly once')
   assert.equal(catalogReads > readsAfterMount, true, 'save refreshes the catalogue once')
   assert.equal(directory.getSnapshot().writeError, null)
-  // The reconciled document carries both edits.
-  assert.deepEqual(document.disabledModelIds, ['GLM-5.2'])
+  // The reconciled document carries both edits, in the plan channel's field.
+  assert.deepEqual(document.planDisabledModelIds, ['GLM-5.2'])
 })
 
 test('Discard drops the draft without touching the Host', async () => {
-  const document = { enabledModelIds: [], disabledModelIds: [] }
+  const document = { enabledModelIds: [], disabledModelIds: [], planEnabledModelIds: [], planDisabledModelIds: [] }
   const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
-  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }]
-  const remote = filteredCatalogueRemote(() => document, all)
+  const models = { plan: [{ id: 'GLM-5.3', name: 'GLM-5.3' }] }
+  const remote = filteredCatalogueRemote(() => document, models)
   const exports = loadBundle({ react: reactStub })
   const { ctx, slots } = makeTogglingContext(configForms, remote)
   exports.apply(ctx)
   const { directory } = slots[0].options.inject()
   await settle()
 
-  await directory.setModel('GLM-5.3', false)
+  await directory.setModel('plan', 'GLM-5.3', false)
   assert.equal(directory.getSnapshot().dirty, true)
   directory.discard()
   assert.equal(directory.getSnapshot().dirty, false, 'discard clears the draft')
-  assert.deepEqual(document.disabledModelIds, [], 'discard writes nothing')
+  assert.deepEqual(document.planDisabledModelIds, [], 'discard writes nothing')
   assert.equal(directory.getSnapshot().rows.find((row) => row.id === 'GLM-5.3').on, true,
     'the row returns to the saved state')
 })
@@ -449,25 +479,192 @@ test('a stale catalogue read cannot flip a switch back', async () => {
   // the config as it stood when the read STARTED. Deriving `on` from catalogue membership
   // therefore showed the pre-write state for one refresh -- the switch appeared to bounce
   // back. `on` must come from the config document.
-  const document = { enabledModelIds: [], disabledModelIds: [] }
+  const document = { enabledModelIds: [], disabledModelIds: [], planEnabledModelIds: [], planDisabledModelIds: [] }
   // Freeze the catalogue at the all-enabled state: every read answers as if nothing was
   // ever disabled, which is the worst case for a catalogue-derived `on`.
-  const frozen = { enabledModelIds: [], disabledModelIds: [] }
+  const frozen = { planEnabledModelIds: [], planDisabledModelIds: [] }
   const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
-  const all = [{ id: 'GLM-5.3', name: 'GLM-5.3' }]
-  const remote = filteredCatalogueRemote(() => document, all, frozen)
+  const models = { plan: [{ id: 'GLM-5.3', name: 'GLM-5.3' }] }
+  const remote = filteredCatalogueRemote(() => document, models, frozen)
   const exports = loadBundle({ react: reactStub })
   const { ctx, slots } = makeTogglingContext(configForms, remote)
   exports.apply(ctx)
   const { directory } = slots[0].options.inject()
   await settle()
 
-  await directory.setModel('GLM-5.3', false)
+  await directory.setModel('plan', 'GLM-5.3', false)
   await directory.save()
 
   // The write landed...
-  assert.deepEqual(document.disabledModelIds, ['GLM-5.3'], 'off must persist')
+  assert.deepEqual(document.planDisabledModelIds, ['GLM-5.3'], 'off must persist')
   // ...and the switch must reflect it even though the catalogue still advertises the model.
   const row = directory.getSnapshot().rows.find((candidate) => candidate.id === 'GLM-5.3')
   assert.equal(row.on, false, 'a stale catalogue must not resurrect a disabled model')
+})
+
+// ---------------------------------------------------------------------------
+// 通道分区（the reported defect: the card showed the wrong channel)
+// ---------------------------------------------------------------------------
+
+test('with transport=plan the card lists the PLAN channel, not the stale legacy ids', async () => {
+  // THE REPORTED DEFECT, reproduced exactly. The card was hard-wired to `zcode-cli`, so
+  // under the (now default) `transport: "plan"` it found no catalogue group and fell back
+  // to the union with the legacy `disabledModelIds` — fifteen agent-era ids such as
+  // `claude-opus-5-5` and `gpt-6-astra`, drawn greyed out as "已启用 0/15" — while the four
+  // models the plugin actually served had no switches at all.
+  const document = {
+    transport: 'plan',
+    planRouteMode: 'merged',
+    planEnabledModelIds: [],
+    planDisabledModelIds: [],
+    planPinnedRoutes: [],
+    // The stale leftovers that produced the bug.
+    enabledModelIds: [],
+    disabledModelIds: ['claude-opus-5-5', 'gpt-6-astra', 'deepseek-v4-pro'],
+  }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const models = {
+    plan: [
+      { id: 'GLM-5.3-Flash', name: 'GLM-5.3-Flash' },
+      { id: 'GLM-5.3', name: 'GLM-5.3' },
+    ],
+    // The agent channel is NOT registered under transport=plan: no group at all.
+  }
+  const remote = filteredCatalogueRemote(() => document, models)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  const snapshot = directory.getSnapshot()
+  // The served models are listed, enabled by default (empty plan lists = everything).
+  assert.deepEqual(snapshot.rows.map((row) => [row.id, row.on]), [
+    ['GLM-5.3', true],
+    ['GLM-5.3-Flash', true],
+  ], 'the card must list the models the plugin actually serves')
+  // The stale legacy ids must NOT appear anywhere.
+  assert.ok(!snapshot.rows.some((row) => row.id === 'claude-opus-5-5'), 'a legacy id must not leak in')
+  assert.ok(!snapshot.rows.some((row) => row.id === 'gpt-6-astra'), 'a legacy id must not leak in')
+  assert.equal(snapshot.total, 2, 'the count must be the plan channel count, not 15')
+  assert.equal(snapshot.enabled, 2)
+  // The unregistered agent channel is still shown, with an explanation rather than silence.
+  const cli = snapshot.sections.find((section) => section.key === 'cli')
+  assert.ok(cli !== undefined, 'an unregistered channel must still be rendered so it can explain itself')
+  assert.equal(cli.registered, false)
+  // The plan channel reports its own diagnostics.
+  const plan = snapshot.sections.find((section) => section.key === 'plan')
+  assert.equal(plan.registered, true)
+  assert.equal(plan.provider, 'zcode-plan')
+  assert.equal(plan.advertised, 2)
+})
+
+test('with transport=agent the card lists the CLI channel and leaves the plan fields alone', async () => {
+  const document = {
+    transport: 'agent',
+    planEnabledModelIds: [],
+    planDisabledModelIds: [],
+    enabledModelIds: [],
+    disabledModelIds: [],
+  }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const models = {
+    cli: [{ id: 'claude-opus-5-5', name: 'claude-opus-5-5' }],
+    // No plan group: the direct channel is not registered under transport=agent.
+  }
+  const remote = filteredCatalogueRemote(() => document, models)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  assert.deepEqual(directory.getSnapshot().rows.map((row) => [row.id, row.on]), [['claude-opus-5-5', true]])
+
+  await directory.setModel('cli', 'claude-opus-5-5', false)
+  await directory.save()
+  assert.deepEqual(document.disabledModelIds, ['claude-opus-5-5'], 'the CLI channel writes the legacy field')
+  assert.deepEqual(document.planDisabledModelIds, [], 'the plan field must be untouched')
+})
+
+test('the two channels keep independent drafts even when they list the same model id', async () => {
+  // `GLM-5.3` can appear in both channels with the same id but different config fields, so a
+  // draft keyed by model id alone would apply one channel's click to the other.
+  const document = {
+    transport: 'both',
+    planEnabledModelIds: [],
+    planDisabledModelIds: [],
+    enabledModelIds: [],
+    disabledModelIds: [],
+  }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const models = {
+    plan: [{ id: 'GLM-5.3', name: 'GLM-5.3' }],
+    cli: [{ id: 'GLM-5.3', name: 'GLM-5.3' }],
+  }
+  const remote = filteredCatalogueRemote(() => document, models)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  const rowsOf = (key) => directory.getSnapshot().sections.find((section) => section.key === key).rows
+  await directory.setModel('plan', 'GLM-5.3', false)
+  // Only the plan channel's switch may move.
+  assert.equal(rowsOf('plan')[0].on, false, 'the clicked channel follows the draft')
+  assert.equal(rowsOf('cli')[0].on, true, 'the other channel must be unaffected')
+
+  await directory.save()
+  assert.deepEqual(document.planDisabledModelIds, ['GLM-5.3'], 'only the plan field is written')
+  assert.deepEqual(document.disabledModelIds, [], 'the CLI field stays untouched')
+})
+
+test('enableAll clears only the channel it was invoked for', async () => {
+  const document = {
+    transport: 'both',
+    planEnabledModelIds: ['GLM-5.3'],
+    planDisabledModelIds: [],
+    enabledModelIds: ['GLM-5.3'],
+    disabledModelIds: [],
+  }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const models = { plan: [{ id: 'GLM-5.3', name: 'GLM-5.3' }], cli: [{ id: 'GLM-5.3', name: 'GLM-5.3' }] }
+  const remote = filteredCatalogueRemote(() => document, models)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  await directory.enableAll('plan')
+  assert.equal(directory.getSnapshot().dirty, true)
+  await directory.save()
+  assert.deepEqual(document.planEnabledModelIds, [], 'the plan allow list is cleared (= everything enabled)')
+  assert.deepEqual(document.enabledModelIds, ['GLM-5.3'], 'the CLI allow list must not be cleared')
+})
+
+test('the card reports the plan route mode and pin count without editing them', async () => {
+  // `planRouteMode` decides what the model ids even ARE, so it is worth stating — but it is a
+  // config-file decision, not something this panel flips.
+  const document = {
+    transport: 'plan',
+    planRouteMode: 'explicit',
+    planEnabledModelIds: [],
+    planDisabledModelIds: [],
+    planPinnedRoutes: ['account:zai-start-plan#GLM-5.3-Flash'],
+  }
+  const configForms = fakeConfigForms(['include:dsh-connect-zcode'], { 'include:dsh-connect-zcode': document })
+  const models = { plan: [{ id: 'account:zai-start-plan#GLM-5.3-Flash', name: 'GLM-5.3-Flash' }] }
+  const remote = filteredCatalogueRemote(() => document, models)
+  const exports = loadBundle({ react: reactStub })
+  const { ctx, slots } = makeTogglingContext(configForms, remote)
+  exports.apply(ctx)
+  const { directory } = slots[0].options.inject()
+  await settle()
+
+  const snapshot = directory.getSnapshot()
+  assert.equal(snapshot.routeMode, 'explicit')
+  assert.equal(snapshot.pinnedCount, 1)
+  assert.equal(snapshot.transport, 'plan')
 })

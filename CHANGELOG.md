@@ -2,6 +2,65 @@
 
 本项目的所有重要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.10.0] - 2026-10-27
+
+**插件页卡片：按通道分区，不再显示错误的模型清单。**
+
+用户报的现象：插件页写着「zcode 模型 · 已启用 0/15」，列出来的却是 `claude-opus-5-5`、
+`gpt-6-astra`、`deepseek-v4-pro` 这些 **agent 时代的旧 id**，而且全是灰的 —— 直连通道真正
+在服务的 4 个 `GLM-*` 模型一个都看不到。
+
+### 根因
+
+卡片的 provider 是**硬编码**的：
+
+```js
+const PROVIDER = "zcode-cli"        // ← 旧通道
+const disabled = idList(value.disabledModelIds)   // ← 旧字段
+```
+
+0.7.0 起默认 `transport: "plan"` 只注册 `zcode-plan`，`zcode-cli` 那个目录组根本不存在。
+于是卡片找不到组，退化成「目录 ∪ 旧字段列表」，把 `disabledModelIds` 里遗留的 15 个
+agent 模型当成目录画了出来；同时 `planEnabledModelIds` / `planDisabledModelIds` /
+`planPinnedRoutes` 完全没人读写 —— 所以四个真实模型的开关也不存在。
+
+### 变更
+
+- **卡片按通道分区**。`zcode-plan`（直连额度）与 `zcode-cli`（托管 agent）各自成一段，
+  各自读自己的目录组、写自己的配置字段。两种通道的 id 形态本来就不同（merged 模式是裸
+  `modelId`，explicit 是 `<providerId>#<modelId>`，旧通道是 CLI id），共用一个列表必然是错的。
+- **未注册的通道如实说明**，而不是静默消失：显示「该通道当前未注册（plan 模式下不提供）」。
+  若配置里还留着它的旧 id，也会如实标出这是残留，但**不再计入模型数**。
+- **每段带诊断行**：供应商 id / 目录模型数 / 已启用数 —— 参考 `dsh-connect-trae` 与
+  `dsh-connect-workbuddy` 的 `diag*` 行。供应商 id 是卡片看起来不对劲时最有用的一条信息，
+  而它以前只为一个可能根本没注册的 provider 打印一次。
+- **报告直连通道的路由模式与钉死数**：`merged`/`explicit` 决定模型 id 的形态，
+  钉死（`planPinnedRoutes`）决定额度用尽时会不会切换，两者都只读展示 —— 它们是配置文件的
+  决定，不该由这张卡片翻。
+- 草稿按 `<通道>\u0000<模型 id>` 作键。两个通道可能同时列出同一个 `GLM-5.3` 但写不同字段，
+  只按 model id 作键会让一个通道的点击落到另一个通道上。
+- 保存时**逐通道**各自核对两条列表，一次写入；「全部启用」只清空被点的那一段。
+
+### 实测（本机，模拟用户报告的场景）
+
+```
+修复前： TOTAL ROWS = 15, enabled = 0
+        claude-fable-5-1, claude-haiku-5-5, claude-opus-5-5, … gpt-6-astra, … （全灰）
+
+修复后： TOTAL ROWS = 4, enabled = 4
+        GLM-5-Turbo [on], GLM-5.2 [on], GLM-5.3 [on], GLM-5.3-Flash [on]
+        plan  provider=zcode-plan  registered=true  advertised=4  enabled=4/4
+        cli   provider=zcode-cli   registered=false advertised=0  enabled=0/0
+              → 「该通道当前未注册（plan 模式下不提供）」
+```
+
+### 新增测试
+
+`test/client-binding.test.mjs` 从 8 条扩到 13 条，直接复现用户报告的场景：把 13 个旧 id
+放进 `disabledModelIds`、只提供 `zcode-plan` 目录组，断言卡片列出 4 个真实模型、旧 id
+一个都不出现、计数是 2 而不是 15。另加：两通道同 id 的独立草稿、`enableAll` 只清一段、
+路由模式与钉死数的只读报告。
+
 ## [0.9.0] - 2026-10-27
 
 **让某个模型只烧特定套餐。**
