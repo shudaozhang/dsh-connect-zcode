@@ -2,6 +2,80 @@
 
 本项目的所有重要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.0] - 2026-10-27
+
+**直连计划额度：不再托管 ZCode 的 agent 进程。**
+
+用户的目标一直是「让 DSH 直接烧 ZCode 账号的套餐额度」，而不是「让 DSH 通过 ZCode 的 agent
+间接用模型」。0.6.x 走的是后者：spawn `ZCode.exe zcode.cjs app-server --stdio`，用 stdio
+JSON-RPC 驱动一个常驻 agent，再由 agent 替我们发模型请求。这条路能跑，但代价是把每次请求都
+交给一个 15MB 的二进制中转，还要维护会话生命周期、回合锁、自愈、事件反解。
+
+0.7.0 把中间层删掉了：计划端点本身就是 **Anthropic Messages 兼容接口**，凭证就在本机磁盘上，
+请求体我们自己就有。
+
+### 新增
+
+- **`lib/plan-client.js`** — 直连 HTTP 客户端（零依赖，只用全局 `fetch`）。
+  `resolvePlanRoute()` 按 providerId 选端点与鉴权形态；`streamMessages()` 把上游 SSE 翻译成
+  统一事件；`classifyPlanError()` 把上游业务码映射成可分类的错误。
+- **`lib/plan-auth.js`** — **设备码 OAuth 登录**，完全脱离 ZCode 客户端。三步：
+  `POST /api/v1/oauth/cli/init` → 用户在浏览器确认 → `GET /api/v1/oauth/cli/poll/{flow_id}`。
+  `ready` 响应**直接给出 `zcodejwttoken`**（不是换来的）。另有与客户端同构的 AES-256-GCM
+  凭证加解密，以及插件自有的凭证存储（**绝不写回客户端的 `credentials.json`**）。
+- **`lib/plan-routes.js`** — 路由表。读客户端磁盘上的 builtin release 得到
+  `providerId → baseUrl → 模型清单`；读不到时降级到内置快照（10 条路由），
+  所以**没装客户端的机器也能起服务**。
+- **`lib/plan-quota.js`** — 额度查询（`billing/current` / `balance` / `preview`），
+  归一化 + TTL 缓存 + 失败不污染缓存。
+- **`lib/plan-adapter.js`** — `ZcodePlanAdapter extends LlmAdapter`，把上面几块接成 DSH 的
+  provider `zcode-plan`。模型 id 形如 `account:zai-start-plan#GLM-5.3-Flash`
+  （路由是额度池，必须能显式选）。
+- **配置 `transport`**：`plan`（默认，直连）/ `agent`（旧通道）/ `both`。
+  旧通道完整保留，两条互不干扰。
+- **诊断命令**：`plan-models`（列出直连路由表，离线）、`quota`（读额度，免费）、
+  `login`（设备码登录）、`plan-turn`（走直连通道发一回合，耗额度）。
+
+### 修复 / 推翻的旧结论
+
+- **「HTTP 直连计划端点会被无痕验证拦」是错的**（0.6.x README 与
+  `docs/official-api-access.md` 都这么写过）。实测：`POST .../zcode-plan/anthropic/v1/messages`
+  带 `Authorization: Bearer <zcodejwttoken>` 直接到达业务层（`200 {"code":1005}` /
+  `429 {"code":3009}`），**不需要任何 `X-Client-*` 签名**。签名链路
+  （`lib/client-signing.js`）对模型请求主链路是不必要的 —— 它服务于另一条 project api-key
+  走 AI 网关的路径。该模块保留但默认不参与直连通道。
+- **`billing/balance` 的 `400 code:3001 parameter error` 之谜**：不是限流（原
+  `creds-report` 的「退避重试后 200」归因有误）。真正变量是 **`X-Device-Mid: <UUID>`** 这个
+  请求头 —— 累计 27 次对照零例外：带它 16/16 → 200，不带 11/11 → 400。取值只校验 UUID 形状，
+  客户端真值在 `<dataBaseDir>/.zcode/v2/telemetry-state.json` 的 `deviceMid`。
+  `billing/current` 不需要它。详见 `docs/quota-api.md`。
+
+### 实测记录（2026-10-27，本机客户端 3.16.3）
+
+| 检查 | 结果 |
+|---|---|
+| 直连 start-plan 路由（Bearer JWT） | `200 {"code":1005,"exceed quota limit"}` → **鉴权与路由均通过**，本机无额度 |
+| 直连 bigmodel coding-plan（`x-api-key`） | `429 {"code":"1309","套餐已到期"}` → **鉴权通过** |
+| 交叉用错鉴权头 | `401` → 证明两条路由的鉴权形态确实不同 |
+| `billing/current` | `200 {"code":0,"data":{"plans":[]}}` → 无套餐是有效答案 |
+| 设备码 OAuth init | `200`，两种家族都返回合法 `authorize_url` |
+| 路由表 | 10 条 `account:*` 路由 / 22 个 DSH 模型 id |
+| 全仓测试 | 323 pass / 0 fail |
+| `tsc -p tsconfig.json` | 0 错误 |
+
+> **验证范围说明**：本机账号当前没有可用套餐额度，所以「真实出字」这一步无法验证。
+> 本次交付把**能验证的都验证了**：鉴权、路由选择、错误分类、SSE 解析、凭证解密与登录流程
+> 都是对着真实端点跑通的；唯一未覆盖的是「套餐有效时上游返回 200 + 正常 SSE」这一分支，
+> 代码按 Anthropic Messages 标准形态实现，并已用真实错误响应验证了非 200 路径。
+
+### 安全说明（比 0.6.x 更强，因为不再跑 agent）
+
+- 直连通道**不启动任何子进程**，因此不再有「以当前用户权限运行、带全套工具执行能力的
+  agent 不在 DSH 权限边界内」这个问题。`authorizationPolicy` 只对旧通道有意义。
+- 凭证仍是 AES-256-GCM + **纯机器指纹**密钥（`SHA256("zcode-credential-fallback:...")`）。
+  这与 ZCode 客户端完全一致（为了互读），但**同机同用户的任何进程都能推出同一把密钥** ——
+  它防的是「文件被单独拷走」，防不了「同机」。不要把它当密钥保管方案。
+
 ## [0.6.1] - 2026-10-24
 
 修复插件页「zcode 模型」卡片在真实宿主上不可用的问题，并把型号开关改成草稿 + 保存。

@@ -63,7 +63,12 @@ test('describe() would now project a form for this entry', () => {
   const form = volatileForm(Config)
   assert.notEqual(form, undefined,
     'volatileForm(Config) must not be undefined, or describe() removes the namespace')
-  assert.deepEqual(Object.keys(form.dict).sort(), ['disabledModelIds', 'enabledModelIds'])
+  assert.deepEqual(Object.keys(form.dict).sort(), [
+    'disabledModelIds',
+    'enabledModelIds',
+    'planDisabledModelIds',
+    'planEnabledModelIds',
+  ])
 })
 
 test('the control: the same fields WITHOUT the marker project to nothing', async () => {

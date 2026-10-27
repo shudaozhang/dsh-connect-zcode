@@ -1,94 +1,88 @@
-# 正规接入渠道：智谱/Z.AI 官方 API
+# 官方 API 渠道，与「直连计划额度」的对照
 
-本文记录 2026-10-24 的实测结论，回答一个问题：**除了托管 ZCode 的 agent，有没有官方支持的
-路子能把 GLM 模型接进 DSH？**
+> **本文 2026-10-27 大改。** 原文的核心结论「烧套餐额度只能让 ZCode 的 agent 跑」是**错的**，
+> 已由实测推翻。0.7.0 的直连通道就是烧套餐额度，且不跑 agent。保留本文是因为它记录的
+> 「`/api/paas/v4` 走账号余额按量计费」这条信息仍然有效，而且两条路的区别值得写清楚。
 
-**有，而且比绕 WAF 干净得多。** 但有一个前提条件本节末尾说明。
+## 两条完全不同的计费路
 
-## 官方端点全表（实测）
-
-用凭证文件里那把 `account-provider:coding-plan:...:api-key`（49 字符，`id.secret` 形状）逐个试：
-
-| 端点 | 用途 | 实测结果 |
+| | `/api/paas/v4` 标准接口 | 计划端点（`zcode-plan` / `anthropic`） |
 |---|---|---|
-| `POST open.bigmodel.cn/api/paas/v4/chat/completions` | **标准 OpenAI 兼容** | **200 ✅ 真实生成** |
-| `GET  open.bigmodel.cn/api/paas/v4/models` | 模型清单 | **200 ✅ 11 个模型** |
-| `POST api.z.ai/api/paas/v4/chat/completions` | 同上（国际站） | **200 ✅** |
-| `POST open.bigmodel.cn/api/coding/paas/v4/chat/completions` | **编码套餐专用** | **429 `1309 套餐已到期`** |
-| `POST open.bigmodel.cn/api/anthropic/v1/messages` | Anthropic 兼容（套餐） | **429 `1309 套餐已到期`** |
-| `POST api.z.ai/api/anthropic/v1/messages` | 同上（国际站） | **429 `1309`** |
-| `POST zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages` | ZCode 套餐端点 | 401 / 405（WAF 会话绑定） |
+| 计费 | **账号余额，按 token** | **套餐额度**（Start Plan / Coding Plan） |
+| 鉴权 | `Authorization: Bearer <api key>` | `Bearer <zcodejwttoken>` 或 `x-api-key: <coding-plan key>` |
+| 本机实测 | ✅ `200` 真实生成 | ✅ 到达业务层（`1005` / `1309`，因本机无额度） |
+| 需要签名 | 否 | **否** |
+| 需要 agent 进程 | 否 | **否**（0.7.0 起） |
+| 谁在用 | 任何智谱 API Key 用户 | ZCode 订阅用户 |
 
-**关键结论**：`/api/paas/v4` 是**公开文档中的标准接口**，用同一把 key 就能跑通，无需签名、
-无需 WAF 绕过、无需 ZCode agent。它走的是**按量计费**（账号余额），不是 Coding Plan 套餐。
+**关键结论**：两条都不需要 WAF 绕过、不需要伪造客户端指纹、不需要 agent 进程。
+区别只在**烧哪份钱**。
 
-## 标准路由的能力（已逐项验证）
+## `/api/paas/v4`：标准 OpenAI 兼容（走账号余额）
 
 ```bash
-# 流式
-POST /api/paas/v4/chat/completions  { "stream": true }
-→ 200, content-type: text/event-stream, 12 个 SSE 帧 ✅
-
-# 工具调用
-POST /api/paas/v4/chat/completions  { "tools": [...] }
-→ 200, tool_calls: [{"function":{"name":"get_weather","arguments":"{\"city\": \"Beijing\"}"}}] ✅
-
-# 模型清单
-GET /api/paas/v4/models
-→ 200, 11 个模型: glm-4.5, glm-4.5-air, glm-4.6, glm-4.7,
-                  glm-5, glm-5-turbo, glm-5.1, glm-5.2,
-                  glm-5.3, glm-5.3-flash, glm-5.3-flashx ✅
-```
-
-真实生成示例（`glm-5.2`）：
-
-```
-POST /api/paas/v4/chat/completions  {"model":"glm-5.2","messages":[{"role":"user","content":"say OK"}]}
+POST https://open.bigmodel.cn/api/paas/v4/chat/completions
+Authorization: Bearer <api key>
+{"model":"glm-5.2","messages":[{"role":"user","content":"say OK"}]}
 → 200 {"choices":[{"finish_reason":"stop","message":{"content":"OK"}}],
-       "usage":{"completion_tokens":...,"prompt_tokens":17,"total_tokens":81}}
+       "usage":{"prompt_tokens":17,"completion_tokens":...,"total_tokens":81}}
 ```
 
-## 为什么这是「正规渠道」
+实测能力（2026-10-24，用凭证文件里那把 49 字符 `account-provider:coding-plan:...:api-key`）：
 
-1. **公开文档的接口**：`/api/paas/v4` 是智谱开放平台标准的 OpenAI 兼容入口，任何 API Key 用户
-   都用它。
-2. **不规避任何安全措施**：不走 WAF、不伪造客户端指纹、不逆向签名。
-3. **计费透明**：走账号余额按量计费，不会因为「绕过套餐」而有封号风险。
+| 端点 | 结果 |
+|---|---|
+| `POST open.bigmodel.cn/api/paas/v4/chat/completions` | **200 ✅ 真实生成** |
+| `POST api.z.ai/api/paas/v4/chat/completions` | **200 ✅** |
+| `GET  open.bigmodel.cn/api/paas/v4/models` | **200 ✅ 11 个模型** |
+| `POST .../chat/completions` + `stream:true` | **200 ✅ SSE 12 帧** |
+| `POST .../chat/completions` + `tools` | **200 ✅ tool_calls 正常** |
 
-对比之下，直连 `zcode.z.ai` 的套餐端点即使**逐字节复制 agent 的 22 个 header、用同一个
-Node 24 运行时**，仍然被 WAF 判 `405 3012 异常活动`——那是阿里云 WAF 的 `acw_tc` 会话绑定，
-属于对方的主动防护，不应绕过。
+模型清单：`glm-4.5`、`glm-4.5-air`、`glm-4.6`、`glm-4.7`、`glm-5`、`glm-5-turbo`、
+`glm-5.1`、`glm-5.2`、`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`。
 
-## 前提条件：计费方式不同
+**接入 DSH 不需要本插件**：DSH 自带 OpenAI 兼容 provider，填 baseURL + apiKey 即可。
+这条路 DSH 完全掌控 system prompt 与工具。
 
-| | `/api/paas/v4` 标准 | `/api/coding/paas/v4` 套餐 |
-|---|---|---|
-| 计费 | 账号余额，按 token | Coding Plan 套餐额度 |
-| 当前可用 | ✅ **是** | ❌ 套餐已到期（`1309`） |
-| 需要绕过防护 | 否 | 是（不可行） |
+## 计划端点：烧套餐额度（0.7.0 的直连通道）
 
-**所以：如果你的目标是烧 Coding Plan 套餐额度，那只能让 ZCode 的 agent 跑（当前架构）。
-如果你只是想让 DSH 用上 GLM 模型，`/api/paas/v4` 是最好、最稳、最合规的路。**
+```bash
+# Start Plan / zcode-plan 路由
+POST https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages
+Authorization: Bearer <zcodejwttoken>
+{"model":"GLM-5.3-Flash","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}
+→ 200 {"code":1005,"msg":"exceed quota limit"}          ← 鉴权与路由均通过，本机无额度
+→ 429 {"code":3009,"msg":"model concurrency limit exceeded"}
 
-## 接入 DSH 的方式
-
-DSH 自带 OpenAI 兼容的 provider 支持，**不需要本插件**：
-
-```yaml
-# 在 DSH 的模型配置里添加一个 OpenAI 兼容供应商
-baseURL: https://open.bigmodel.cn/api/paas/v4
-apiKey:  <你的 bigmodel API Key>
-models:  glm-5.3, glm-5.3-flash, glm-5.2, glm-5-turbo, ...
+# BigModel Coding Plan 路由
+POST https://open.bigmodel.cn/api/anthropic/v1/messages
+x-api-key: <account-provider:coding-plan:...:api-key>
+→ 429 {"type":"error","error":{"code":"1309","message":"…套餐已到期…"}}
 ```
 
-这条路上 **DSH 完全掌控 system prompt 和工具**，模型不会以为自己在别的产品里跑，
-也不存在「双 agent」问题——正是最初想要的效果。
+**这就是 0.7.0 的做法**，详见 [`docs/quota-api.md`](quota-api.md) 与 README 的
+「两条通道」一节。
 
-## 如果你续费了 Coding Plan
+## 推翻的旧结论（原文在这里，留作记录）
 
-续费后值得再试一次本插件的套餐路由，因为签名链路已经复现（见
-[`lib/client-signing.js`](../lib/client-signing.js)）。但要注意：`zcode.z.ai` 那层 WAF
-会话绑定仍然存在，**续费改变的是业务层的 1309，不改变 WAF 的 405**。
+原文（2026-10-24）写过这些，**全部是错的**：
 
-而 `/api/coding/paas/v4` 这条**不需要过 WAF**（实测直接返回 1309 业务码而非 405），
-所以**续费后它很可能立刻可用**——这是最值得优先验证的一条。
+| 旧结论 | 实际情况 |
+|---|---|
+| `POST zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages` → `401 / 405（WAF 会话绑定）` | 带 `Bearer <zcodejwttoken>` 直接 `200`/`429` 到业务层 |
+| 逐字节复制 agent 的 22 个 header 仍被 WAF 判 `405 3012 异常活动` | 根本不需要复制 header —— 主链路不要签名 |
+| 「要烧 Coding Plan 套餐额度，那只能让 ZCode 的 agent 跑」 | 直连通道就是烧套餐额度，不跑 agent |
+| 「`/api/coding/paas/v4` 不需要过 WAF，续费后它很可能立刻可用」 | 这条本身没错，但结论误导：`zcode-plan` 端点同样不需要过 WAF |
+
+**为什么会错**：当时观察到「带签名能到业务层、不带签名 401」，就归因为「需要签名」。
+实际上那个 401 是**鉴权头形态用错了** —— `zcode-plan` 端点要 `Authorization: Bearer`，
+当时试的是 `x-api-key`。签名链路（`lib/client-signing.js`）确实存在也确实能用，但它服务于
+另一条路径（project api-key 走 AI 网关），**不是模型推理的必需条件**。
+
+教训记在这里：把「某个机制存在」当成「这个机制必需」，会直接堵死一条本来能走的路。
+
+## 签名链路还有用吗
+
+`lib/client-signing.js` 保留，但**默认不参与直连通道**。它记录的是
+OAuth token → signing JWT → HKDF/HMAC 握手 → AES-GCM 解包 Ed25519 → 签业务请求 的完整链路。
+如果将来出现必须签名的端点（例如某些 project 级管理接口），它是现成的参考实现。

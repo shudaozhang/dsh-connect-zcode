@@ -16,14 +16,42 @@ test('the diagnostics help advertises the tool opt-in', () => {
 
 test('every documented command is listed exactly once', () => {
   const names = COMMANDS.map((entry) => entry.name)
-  assert.deepEqual(names, ['doctor', 'models', 'protocol', 'turn', 'image'])
+  assert.deepEqual(names, [
+    'doctor',
+    'models',
+    'plan-models',
+    'quota',
+    'login',
+    'plan-turn',
+    'protocol',
+    'turn',
+    'image',
+  ])
   assert.equal(new Set(names).size, names.length)
 })
 
-test('the commands that can run tools are the ones that start a turn', () => {
-  // `turn` and `image` send real messages; they are the only probes whose tool requests
-  // could ever reach a permission prompt. Pin that so a future command cannot quietly
-  // be assumed safe.
+test('only the commands that spawn the agent can run tools', () => {
+  // This is the invariant the `--allow-tools` flag rests on: a probe can only reach a
+  // permission prompt if it actually starts an agent.
+  //
+  // `turn` and `image` do (they spawn `zcode app-server` and hand the model a full tool
+  // set). `plan-turn` also spends quota, but it is a plain HTTP POST to the plan endpoint
+  // -- there is no agent, so there are no tool requests to approve. That asymmetry is
+  // exactly what the direct channel buys us, so it is pinned here rather than left
+  // implicit: if someone later routes `plan-turn` through an agent, this fails.
   const spending = COMMANDS.filter((entry) => /spends quota/.test(entry.summary)).map((entry) => entry.name)
-  assert.deepEqual(spending, ['turn', 'image'])
+  assert.deepEqual(spending, ['plan-turn', 'turn', 'image'])
+
+  const spawnsAgent = COMMANDS.filter((entry) => /through the agent|reaches the model/.test(entry.summary)).map((entry) => entry.name)
+  assert.deepEqual(spawnsAgent, ['turn', 'image'])
+})
+
+test('the direct-channel commands are documented as not spawning the agent', () => {
+  // A user reading the help must be able to tell which commands talk to the plan endpoint
+  // directly and which start the client's agent, because only the latter can execute tools.
+  const byName = new Map(COMMANDS.map((entry) => [entry.name, entry]))
+  assert.match(byName.get('quota').summary, /no agent/)
+  assert.match(byName.get('plan-models').summary, /direct HTTP/)
+  assert.match(byName.get('plan-turn').summary, /direct HTTP/)
+  assert.match(byName.get('login').summary, /OAuth/)
 })
