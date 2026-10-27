@@ -429,7 +429,7 @@ disabledModelIds: [GLM-5.2]
 planEnabledModelIds:
   - account:zai-start-plan#GLM-5.3-Flash   # 优先烧 start-plan，但它不可用时仍会切换
 planDisabledModelIds:
-  - account:zai-bigmodel-team-coding-plan#GLM-5.3-Flash   # 只摘掉这条路由，模型保留
+  - account:bigmodel-team-coding-plan#GLM-5.3-Flash   # 只摘掉这条路由，模型保留
 ```
 
 | 写法 | `merged` 模式下的含义 |
