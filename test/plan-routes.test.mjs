@@ -41,6 +41,7 @@ import {
   parsePlanModelId,
   parsePlanModelRef,
   planModelId,
+  restrictRoutesToPins,
   routesForModel,
 } from '../lib/plan-routes.js'
 
@@ -330,6 +331,53 @@ test('mergePlanModels 把同一模型的多条路由合并成一条，链按优�
 
 test('mergePlanModels 对空表返回空数组', () => {
   assert.deepEqual(mergePlanModels([]), [])
+})
+
+// ── restrictRoutesToPins（严格钉死） ─────────────────────────────────────────
+
+test('restrictRoutesToPins 把链收窄到钉死的路由，顺序仍按套餐优先级', () => {
+  const providers = normalizeRelease(release([
+    rule({ providerId: 'account:zai-individual-coding-plan', config: { access: { accountType: 'zai', mode: 'individual-coding-plan' }, api: { baseUrl: 'https://api.z.ai/api/anthropic' }, builtinModelIds: ['GLM-5.3-Flash'] } }),
+    rule({ providerId: 'account:zai-start-plan' }),
+  ]))
+  const chain = routesForModel(providers, 'GLM-5.3-Flash')
+  assert.equal(chain.length, 2, 'GLM-5.3-Flash 在两条路由上')
+
+  // 只钉一条
+  assert.deepEqual(
+    restrictRoutesToPins(chain, 'GLM-5.3-Flash', ['account:zai-individual-coding-plan#GLM-5.3-Flash'])
+      ?.map((p) => p.providerId),
+    ['account:zai-individual-coding-plan'],
+  )
+  // 钉两条：保持套餐优先级顺序，而不是配置里的书写顺序
+  assert.deepEqual(
+    restrictRoutesToPins(chain, 'GLM-5.3-Flash', [
+      'account:zai-individual-coding-plan#GLM-5.3-Flash',
+      'account:zai-start-plan#GLM-5.3-Flash',
+    ])?.map((p) => p.providerId),
+    ['account:zai-start-plan', 'account:zai-individual-coding-plan'],
+  )
+  // 斜杠写法等价
+  assert.deepEqual(
+    restrictRoutesToPins(chain, 'GLM-5.3-Flash', ['account:zai-start-plan/GLM-5.3-Flash'])
+      ?.map((p) => p.providerId),
+    ['account:zai-start-plan'],
+  )
+})
+
+test('restrictRoutesToPins 对「无效钉死」返回 undefined（绝不能因此清空链）', () => {
+  const providers = normalizeRelease(release([rule()]))
+  const chain = routesForModel(providers, 'GLM-5.3-Flash')
+  // 空 / 非数组
+  assert.equal(restrictRoutesToPins(chain, 'GLM-5.3-Flash', []), undefined)
+  assert.equal(restrictRoutesToPins(chain, 'GLM-5.3-Flash', /** @type {any} */ (null)), undefined)
+  // 裸 modelId：没说哪条路由
+  assert.equal(restrictRoutesToPins(chain, 'GLM-5.3-Flash', ['GLM-5.3-Flash']), undefined)
+  // 钉的是别的模型
+  assert.equal(restrictRoutesToPins(chain, 'GLM-5.3-Flash', ['account:zai-start-plan#GLM-5.2']), undefined)
+  // providerId 不存在 / 该路由不服务这个模型
+  assert.equal(restrictRoutesToPins(chain, 'GLM-5.3-Flash', ['account:nope#GLM-5.3-Flash']), undefined)
+  assert.equal(restrictRoutesToPins(chain, 'GLM-5.2', ['account:nope#GLM-5.2']), undefined)
 })
 
 test('findProvider 按 providerId 精确匹配', () => {

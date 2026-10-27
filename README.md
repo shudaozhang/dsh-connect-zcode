@@ -352,6 +352,7 @@ node bin/dsh-connect-zcode.js plan-models --mode both   # merged + explicit 两�
 node bin/dsh-connect-zcode.js quota        # 读套餐额度（免费，不耗额度）
 node bin/dsh-connect-zcode.js login        # 设备码登录，打印授权 URL 后轮询（免费）
 node bin/dsh-connect-zcode.js plan-turn "hi"  # 走直连通道发一回合（消耗额度）
+node bin/dsh-connect-zcode.js plan-turn "hi" --pinned "account:zai-start-plan#GLM-5.3-Flash"  # 复现 planPinnedRoutes
 ```
 
 `plan-models` 读客户端磁盘上的 builtin release；读不到就用内置快照，所以**没装客户端也能跑**。
@@ -428,16 +429,66 @@ disabledModelIds: [GLM-5.2]
 ```yaml
 planEnabledModelIds:
   - account:zai-start-plan#GLM-5.3-Flash   # 优先烧 start-plan，但它不可用时仍会切换
+planPinnedRoutes:
+  - account:zai-start-plan#GLM-5.3-Flash   # 只烧 start-plan，额度用尽也不切换
 planDisabledModelIds:
   - account:bigmodel-team-coding-plan#GLM-5.3-Flash   # 只摘掉这条路由，模型保留
 ```
 
-| 写法 | `merged` 模式下的含义 |
+| 写法 | 字段 | `merged` 模式下的含义 |
+|---|---|---|
+| `GLM-5.3-Flash` | enabled | 点名模型：只留它 |
+| `GLM-5.3-Flash` | disabled | 整个模型消失 |
+| `account:zai-start-plan#GLM-5.3-Flash` | `planEnabledModelIds` | 提到链首，**保留**自动切换（「优先烧」） |
+| `account:zai-start-plan#GLM-5.3-Flash` | `planPinnedRoutes` | 链只剩这一条，**不**切换（「只烧」） |
+| `account:zai-start-plan#GLM-5.3-Flash` | `planDisabledModelIds` | 只把该路由从链上摘掉，模型还在 |
+| `account:zai-start-plan/GLM-5.3-Flash` | 任意 | 同上（斜杠写法等价） |
+
+### 让某个模型只烧特定套餐
+
+「优先烧」和「只烧」是两件不同的事，所以是两个字段：
+
+- `planEnabledModelIds` 里的 `<providerId>#<modelId>` 只调整**顺序** —— 先试它，不行照样
+  兜底到别的套餐。适合「尽量用便宜的这份额度」。
+- `planPinnedRoutes` 里的同一个写法**截断链** —— 只试它，失败就直接报错。适合「这份额度
+  是专用的，绝不能串到另一份去」。
+
+```yaml
+# 只让 GLM-5.3-Flash 烧 start-plan；额度用尽就报 1005，不会自动改烧 coding-plan
+planPinnedRoutes:
+  - account:zai-start-plan#GLM-5.3-Flash
+
+# 同一个模型也可以钉多条（按套餐优先级排队，而非书写顺序）
+planPinnedRoutes:
+  - account:zai-start-plan#GLM-5.3-Flash
+  - account:bigmodel-team-coding-plan#GLM-5.3-Flash
+```
+
+模型选择器里会标出来，因为它改变的是**失败语义**而不只是候选范围：
+
+```
+GLM-5.3-Flash   start · pinned, no failover
+GLM-5.3         coding → idle → fast (8 routes)
+```
+
+写错了不会被静默忽略，而是分三类告警并**保持原链不变**（绝不因为一个笔误让模型不可用）：
+
+| 问题 | 日志 |
 |---|---|
-| `GLM-5.3-Flash` | 点名模型：启用 = 只留它；停用 = 整个模型消失 |
-| `account:zai-start-plan#GLM-5.3-Flash`（启用） | 把该路由提到链首，**保留**自动切换 |
-| `account:zai-start-plan#GLM-5.3-Flash`（停用） | 只把该路由从链上摘掉，模型还在 |
-| `account:zai-start-plan/GLM-5.3-Flash` | 同上（斜杠写法等价） |
+| 写成裸 modelId | `planPinnedRoutes needs "<providerId>#<modelId>"; these were ignored: …` |
+| 模型名打错 | `planPinnedRoutes names models not in the plan catalogue: …` |
+| providerId 打错 / 该路由不服务这个模型 | `planPinnedRoutes names routes that do not serve those models: …` |
+
+想先在真实端点上试一下再写进配置，用 `plan-turn --pinned`：
+
+```powershell
+node bin/dsh-connect-zcode.js plan-turn "hi" --model GLM-5.3-Flash --pinned "account:zai-start-plan#GLM-5.3-Flash"
+# chain    account:bigmodel-start-plan  (pinned, no failover)
+#   route    account:bigmodel-start-plan unavailable (QUOTA): …（没有 “→ next”）
+```
+
+> 若同一条路由既被钉死又被停用，得到一个空链 → 模型直接隐藏。两个要求互相矛盾时，
+> 宁可少一个模型，也不悄悄退回用户明确说过不要用的套餐。
 
 > **不要把旧字段也传给直连通道**：旧字段填裸 `modelId`，直连 `explicit` 模式填 `#` 形式，
 > 混用会互相误伤。适配器在 `plan*` 字段存在时**不回退**旧字段（空 = 全开）；只有整个配置
@@ -481,6 +532,7 @@ node bin/dsh-connect-zcode.js models                         # 旧通道的 id
 | `planRouteMode` | `merged` | 直连通道模型清单投影：`merged` = 一个模型一条 + 套餐间自动切换（**4 个模型**）；`explicit` = 一条路由一条 + 手动选（**22 个**） |
 | `planEnabledModelIds` | `[]` | 直连通道只启用这些。`merged` 写裸 id（`GLM-5.3-Flash`），也可写 `#` 形式表达「优先这条路由」；`explicit` 写 `<providerId>#<modelId>`。留空 = 全部 |
 | `planDisabledModelIds` | `[]` | 直连通道额外停用（优先级更高）。`merged` 下裸 id 隐藏整个模型，`#` 形式只摘掉该路由 |
+| `planPinnedRoutes` | `[]` | 把模型**严格**钉死到指定套餐路由（写 `<providerId>#<modelId>`）：只烧这一条，额度用尽也不切换。留空 = 允许自动切换。想让路由「优先但保留兜底」请改用 `planEnabledModelIds` |
 | `planCredentialStore` | 空 | 插件自有凭证文件；空 = `<dataBaseDir>/.zcode/dsh-plan-credentials.json`。**绝不写回客户端 credentials.json** |
 | `zcodeCliPath` | 自动探测 | `zcode.cjs` 路径；空 = 从 `ZCODE_CLI_PATH`、**桌面客户端（注册表发现的安装根）**、常见安装位置、`zcode-app-cli` 全局包依次探测 |
 | `zcodeClientRoot` | 空 | ZCode 桌面客户端安装根（如 `E:\zcode`）；空 = 自动探测（注册表 → 标准安装目录） |

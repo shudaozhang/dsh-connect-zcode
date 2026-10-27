@@ -68,6 +68,7 @@ test('describe() would now project a form for this entry', () => {
     'enabledModelIds',
     'planDisabledModelIds',
     'planEnabledModelIds',
+    'planPinnedRoutes',
   ])
 })
 
@@ -141,6 +142,18 @@ test('a volatile update is visible through the SAME config object', async () => 
 
   assert.deepEqual(resolveOptions(before).disabledModelIds, ['GLM-5.3'],
     'the same config object must observe the new value')
+})
+
+test('planPinnedRoutes resolves to a plain list and defaults to empty (no pin)', () => {
+  // The pin list must survive the volatile reference exactly like the other model lists,
+  // and an absent value must mean "nothing pinned" — not "pin everything to nothing".
+  assert.deepEqual(resolveOptions(Config({})).planPinnedRoutes, [])
+  assert.deepEqual(
+    resolveOptions(Config({ planPinnedRoutes: ['account:zai-start-plan#GLM-5.3-Flash'] })).planPinnedRoutes,
+    ['account:zai-start-plan#GLM-5.3-Flash'],
+  )
+  assert.equal(Config.dict.planPinnedRoutes.meta?.volatile, true,
+    'the pin list is edited from the same settings form as the other model lists')
 })
 
 test('unwrapVolatileDeep peels references at any depth', () => {

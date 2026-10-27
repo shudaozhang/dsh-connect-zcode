@@ -29,6 +29,9 @@ import {
   ZcodePlanAdapter,
   applyRouteExclusions,
   applyRoutePins,
+  applyStrictPins,
+  describeModelDescription,
+  validateRoutePins,
   buildPlanModels,
   defaultReasoningLevelOf,
   describeRouteChain,
@@ -44,6 +47,7 @@ import {
   traitsForModel,
 } from '../lib/plan-adapter.js'
 import { PlanClientError } from '../lib/plan-client.js'
+import { restrictRoutesToPins, routesForModel } from '../lib/plan-routes.js'
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -466,6 +470,130 @@ test('adapter hides the whole model only when the deny list names the model itse
   const flash = oneRoute.find((entry) => entry.id === 'GLM-5.3-Flash')
   assert.ok(flash !== undefined, 'the model must survive a single-route denial')
   assert.equal(flash?.description, 'coding')
+})
+
+// ---------------------------------------------------------------------------
+// 严格钉死：某个模型只烧特定套餐（planPinnedRoutes）
+// ---------------------------------------------------------------------------
+
+test('restrictRoutesToPins keeps only the pinned routes, in plan-priority order', () => {
+  const flash = routesForModel(PROVIDERS, 'GLM-5.3-Flash')
+  assert.deepEqual(
+    restrictRoutesToPins(flash, 'GLM-5.3-Flash', ['account:zai-individual-coding-plan#GLM-5.3-Flash'])
+      ?.map((route) => route.providerId),
+    ['account:zai-individual-coding-plan'],
+  )
+  // Several pins keep several routes, still ordered by plan priority rather than config order.
+  assert.deepEqual(
+    restrictRoutesToPins(flash, 'GLM-5.3-Flash', [
+      'account:zai-individual-coding-plan#GLM-5.3-Flash',
+      'account:zai-start-plan#GLM-5.3-Flash',
+    ])?.map((route) => route.providerId),
+    ['account:zai-start-plan', 'account:zai-individual-coding-plan'],
+  )
+  // Nothing to restrict: undefined, so callers can tell "no pin" from "pinned to everything".
+  assert.equal(restrictRoutesToPins(flash, 'GLM-5.3-Flash', []), undefined)
+  assert.equal(restrictRoutesToPins(flash, 'GLM-5.3-Flash', ['GLM-5.3-Flash']), undefined, 'a bare id names no route')
+  assert.equal(restrictRoutesToPins(flash, 'GLM-5.3-Flash', ['account:zai-start-plan#GLM-5.2']), undefined, 'pins are per-model')
+  // A pin on a route that does not serve this model must not empty the chain.
+  assert.equal(restrictRoutesToPins(flash, 'GLM-5.3-Flash', ['account:zai-start-plan#GLM-5.3']), undefined)
+})
+
+test('applyStrictPins truncates the chain and marks the entry as pinned', () => {
+  const models = buildPlanModels(PROVIDERS)
+  const flash = /** @type {any} */ (models.find((entry) => entry.modelId === 'GLM-5.3-Flash'))
+  const pinned = applyStrictPins(flash, ['account:zai-individual-coding-plan#GLM-5.3-Flash'])
+  assert.deepEqual(pinned.routes.map((route) => route.providerId), ['account:zai-individual-coding-plan'])
+  assert.equal(pinned.pinned, true)
+  assert.equal(pinned.providerId, 'account:zai-individual-coding-plan')
+  // Unpinned models are untouched and carry no marker.
+  assert.equal(applyStrictPins(flash, []), flash)
+  assert.equal(applyStrictPins(flash, ['account:zai-start-plan#GLM-5.2']), flash)
+  // Pinning to a route the model already has alone still marks it: the semantics differ
+  // (no failover) even when the chain length happens to be unchanged.
+  const turbo = /** @type {any} */ (models.find((entry) => entry.modelId === 'GLM-5-Turbo'))
+  assert.equal(applyStrictPins(turbo, ['account:zai-start-plan#GLM-5-Turbo']).pinned, true)
+})
+
+test('validateRoutePins separates bare ids, unknown models and wrong routes', () => {
+  const models = buildPlanModels(PROVIDERS)
+  assert.deepEqual(validateRoutePins(models, []), { bare: [], unknownModel: [], unknownRoute: [] })
+  const result = validateRoutePins(models, [
+    'GLM-5.3-Flash',
+    'account:zai-start-plan#NOPE',
+    'account:zai-start-plan#GLM-5.3',
+    'account:zai-start-plan#GLM-5.3-Flash',
+  ])
+  assert.deepEqual(result.bare, ['GLM-5.3-Flash'])
+  assert.deepEqual(result.unknownModel, ['account:zai-start-plan#NOPE'])
+  assert.deepEqual(result.unknownRoute, ['account:zai-start-plan#GLM-5.3'], 'GLM-5.3 is not on start-plan')
+})
+
+test('describeModelDescription spells out that a pinned model will not fail over', () => {
+  const models = buildPlanModels(PROVIDERS)
+  const flash = /** @type {any} */ (models.find((entry) => entry.modelId === 'GLM-5.3-Flash'))
+  assert.equal(describeModelDescription(flash), 'start → coding (2 routes)')
+  assert.equal(
+    describeModelDescription(applyStrictPins(flash, ['account:zai-start-plan#GLM-5.3-Flash'])),
+    'start · pinned, no failover',
+  )
+})
+
+test('listModels advertises a pinned model with a single-route chain', async () => {
+  // GLM-5.3-Flash is served by both fixture routes; pinning it to the second one must leave a
+  // one-route chain and say so.
+  const models = await makeAdapter({
+    config: { planPinnedRoutes: ['account:zai-individual-coding-plan#GLM-5.3-Flash'] },
+  }).listModels(PLAN_PROVIDER_ID)
+  const flash = models.find((entry) => entry.id === 'GLM-5.3-Flash')
+  assert.equal(flash?.description, 'coding · pinned, no failover')
+  // Only that one model is pinned; the other keeps its chain untouched.
+  const unpinned = models.find((entry) => entry.id === 'GLM-5.3')
+  assert.equal(unpinned?.description, 'coding')
+})
+
+test('stream() makes exactly one attempt for a pinned model and never fails over', async () => {
+  let calls = 0
+  const adapter = makeAdapter({
+    config: { planPinnedRoutes: ['account:zai-start-plan#GLM-5.3-Flash'] },
+    fetchImpl: /** @type {typeof fetch} */ (async () => {
+      calls += 1
+      return new Response('{"code":1005,"msg":"exceed quota limit"}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }),
+  })
+  await assert.rejects(collect(adapter.stream({ ...baseRequest, model: 'GLM-5.3-Flash' })), (error) => {
+    assert.equal(error.code, 'RATE_LIMIT')
+    return true
+  })
+  // Unpinned this model has a two-route chain, so a second call would have happened.
+  assert.equal(calls, 1, 'a pinned model must not switch to another plan route')
+})
+
+test('a bad pin is ignored rather than silently changing the model list', async () => {
+  /** @type {string[]} */
+  const warnings = []
+  const adapter = makeAdapter({
+    logger: { warn: (message) => warnings.push(message) },
+    config: { planPinnedRoutes: ['GLM-5.3-Flash', 'account:zai-start-plan#NOPE', 'account:zai-start-plan#GLM-5.3'] },
+  })
+  const models = await adapter.listModels(PLAN_PROVIDER_ID)
+  // Nothing was pinned, so the chains are intact.
+  assert.equal(models.find((entry) => entry.id === 'GLM-5.3-Flash')?.description, 'start → coding (2 routes)')
+  assert.ok(warnings.some((line) => /needs "<providerId>#<modelId>"/u.test(line)), 'a bare id must be reported')
+  assert.ok(warnings.some((line) => /models not in the plan catalogue/u.test(line)), 'an unknown model must be reported')
+  assert.ok(warnings.some((line) => /do not serve those models/u.test(line)), 'a wrong route must be reported')
+})
+
+test('pinning a route that the deny list also removes hides the model instead of falling back', async () => {
+  // Contradictory config. Honouring the pin would mean burning a plan the user also said not
+  // to use; silently falling back would violate "only this plan". Hiding is the honest answer.
+  const models = await makeAdapter({
+    config: {
+      planPinnedRoutes: ['account:zai-start-plan#GLM-5.3-Flash'],
+      planDisabledModelIds: ['account:zai-start-plan#GLM-5.3-Flash'],
+    },
+  }).listModels(PLAN_PROVIDER_ID)
+  assert.ok(!models.some((entry) => entry.id === 'GLM-5.3-Flash'))
 })
 
 test('adapter parses the three model-id spellings to the same route', () => {

@@ -2,6 +2,63 @@
 
 本项目的所有重要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.9.0] - 2026-10-27
+
+**让某个模型只烧特定套餐。**
+
+0.8.0 的自动切换解决的是「额度用尽别让我手动改配置」。但它把两件事混成了一个开关：
+`planEnabledModelIds` 里的 `account:zai-start-plan#GLM-5.3-Flash` 只把该路由**提到链首**，
+不可用时仍然兜底到别的套餐。对「这份额度是专用的、绝不能串到另一份去」的场景，
+这个语义不够——用户明确说了只烧这份，插件却可能在额度用尽时悄悄改烧另一份。
+
+### 新增
+
+- **`planPinnedRoutes` 配置项**：把模型**严格**钉死到指定路由，链被截断，额度用尽直接报错，
+  **不**切换。
+  ```yaml
+  planPinnedRoutes:
+    - account:zai-start-plan#GLM-5.3-Flash
+  ```
+- **`restrictRoutesToPins()`**（`lib/plan-routes.js`，零依赖）—— 按钉死项收窄候选链。
+  对不生效的钉死返回 `undefined`，由调用方告警并**保持原链不变**，绝不因为一个笔误让模型
+  变成不可用。
+- **`applyStrictPins()` / `validateRoutePins()`**（`lib/plan-adapter.js`）—— 前者截断链并打
+  `pinned` 标记；后者把无效钉死分成三类分别告警：裸 modelId（没说哪条路由）、模型名打错、
+  providerId 打错或该路由不服务这个模型。
+- `plan-turn --pinned <ids>` —— 在真实端点上复现 `planPinnedRoutes` 的效果，写进配置前先验。
+- 模型描述会标出 `· pinned, no failover`：钉死改变的是**失败语义**，不标出来用户会以为
+  它和「优先烧」是一回事，直到限额那天才发现没人兜底。
+
+### 语义对照（merged 模式，同一个 `<providerId>#<modelId>` 写法）
+
+| 字段 | 效果 |
+|---|---|
+| `planEnabledModelIds` | 提到链首，**保留**自动切换（「优先烧」） |
+| `planPinnedRoutes` | 链只剩这一条，**不**切换（「只烧」） |
+| `planDisabledModelIds` | 只摘掉该路由，模型还在 |
+
+处理顺序是 **提升 → 钉死 → 剔除**，所以「既钉死又停用同一条路由」会得到空链 → 模型隐藏。
+两个要求互相矛盾时，宁可少一个模型，也不悄悄退回用户明确说过不要用的套餐。
+
+### 实测（本机，2026-10-27）
+
+```
+未钉死：3 candidate route(s) → 2 次尝试（去重后）
+  route  ...start-plan unavailable (QUOTA) → next: 1005 exceed quota limit
+  route  ...team-coding-plan unavailable (QUOTA): 1309 套餐已到期
+
+钉死到 account:bigmodel-start-plan：
+  1 candidate route(s) → 1 次尝试，日志里没有 "→ next"
+  route  ...start-plan unavailable (QUOTA): 1005 exceed quota limit
+```
+
+这是本次改动最关键的一条证据：**钉死后真的停在第一条，不再兜底**。
+
+### 验证边界
+
+本机账号仍无可用套餐，所以「钉死的那条路由有额度时能正常出内容」仍未验证——与 0.7.0 /
+0.8.0 相同的边界。已验证：钉死确实截断候选链、确实只发一次请求、无效配置确实只告警不改链。
+
 ## [0.8.0] - 2026-10-27
 
 **一个模型只出现一次，套餐之间自动切换。**
