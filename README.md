@@ -161,9 +161,17 @@ POST https://open.bigmodel.cn/api/anthropic/v1/messages
 → 429 {"type":"error","error":{"code":"1309","message":"…套餐已到期…"}}
 ```
 
-**不需要任何 `X-Client-*` 签名头**（见下面的「推翻了什么」）。鉴权形态按家族区分：
-`zcode-plan` 端点只收 Bearer JWT，`api.z.ai` / `open.bigmodel.cn` 只收 `x-api-key`；
-交叉用错一律 `401`。
+**`zcode.z.ai` 端点有客户端指纹层（0.11.0 起自动处理）**：只带 `Authorization` 会被判
+`405 / 3012 异常活动`。插件会自动补齐 `x-api-key`（同一个 JWT）与 `ZCode/<版本>` 的
+`user-agent`，并把 `system` 拼成「官方 preamble + 你的 prompt」的文本块数组。
+`api.z.ai` / `open.bigmodel.cn` 的 coding-plan 端点**不需要**这层，插件不会给它们加头。
+
+> 这一条是 0.7.0 写错过的结论：当时本机额度耗尽，业务层的 `1005` 先于指纹校验返回，
+> 于是「拿到业务码」被读成了「指纹不存在」。额度到账后 3012 立刻出现。
+> 详见 [`docs/official-api-access.md`](docs/official-api-access.md)。
+
+鉴权形态按家族区分：`zcode-plan` 端点只收 Bearer JWT，`api.z.ai` / `open.bigmodel.cn`
+只收 `x-api-key`；交叉用错一律 `401`。
 
 直连通道的模型清单有两种投影方式，由 `planRouteMode` 选择（默认 `merged`）：
 
@@ -211,20 +219,33 @@ GET  {origin}/api/v1/oauth/cli/poll/{flow_id}
 凭证优先用插件自己 `login` 写下的，客户端 `credentials.json` 只作补充。
 所以「干净机器 + 插件自己登录」是完整可用的部署形态。
 
-## 推翻了 0.6.x 的三条错误结论
+## 推翻了 0.6.x 的三条错误结论（以及 0.7.0 自己的一条）
 
 0.6.x 的 README 与 `docs/official-api-access.md` 曾断言直连不可能。**那是错的**，
 根因是当时把「签名链路存在」误当成「签名是必需的」：
 
 | 0.6.x 的说法 | 实测（2026-10-27，客户端 3.16.3） |
 |---|---|
-| 直连套餐端点被 WAF 拦，`405 3012 异常活动` | ❌ 错的。带 `Authorization: Bearer <zcodejwttoken>` 直接到业务层 |
-| 只有 agent 二进制自己发的签名请求能过 | ❌ 错的。**模型请求主链路完全不需要签名** |
+| 直连套餐端点被 WAF 拦，`405 3012 异常活动` | ❌ 错的。带 `Authorization: Bearer <zcodejwttoken>` 能到业务层 |
+| 只有 agent 二进制自己发的签名请求能过 | ❌ 错的。**模型请求主链路不需要 `X-Client-*` 签名** |
 | 要烧套餐额度必须让 ZCode 的 agent 跑 | ❌ 错的。直连通道就是烧套餐额度，且不跑 agent |
+
+但 0.7.0 顺手写下的第四句话 —— 「**不需要伪造客户端指纹**」 —— 在 2026-10-31 被推翻了：
+
+| 0.7.0 的说法 | 实测（2026-10-31，额度到账后） |
+|---|---|
+| 逐字节复制 agent 的 header 仍被 405 3012，所以「根本不需要复制 header」 | ❌ 错的。**三项指纹头必须复制**，`system` 也要按官方形状拼成 2–3 个文本块 |
+| 主链路不要签名（推论：指纹也不需要） | ⚠️ 一半对：`X-Client-*` 签名确实不需要，但**客户端指纹需要** |
+
+原因是额度耗尽时业务层的 `1005` 先于指纹校验返回，把这一层完全遮住了。
+**「某个机制没触发，不等于它不存在」** —— 这是比上一条更贵的教训。
 
 签名链路（`lib/client-signing.js`，OAuth token → signing JWT → HKDF/HMAC 握手 → AES-GCM
 解包 Ed25519 → 签业务请求）**确实存在也确实能用**，但它服务于另一条路径（project api-key
 走 AI 网关），不是模型推理。该模块保留，默认不参与直连通道。
+
+客户端指纹层由 `lib/plan-preamble.js` 处理（官方 preamble + 三项头），与上面那套签名
+是**两套独立机制**，不要混为一谈。
 
 > **`X-Device-Mid` 那个坑**：`billing/balance` / `billing/preview` 会回
 > `400 code:3001 parameter error`，缺的是 `X-Device-Mid: <UUID>` 这个头（值只校验 UUID 形状）。
@@ -594,6 +615,9 @@ lib/plan-client.js   直连 HTTP 客户端：路由解析 → 请求构造 → S
                      外加 streamMessagesAcrossRoutes()（按候选链自动切换）与
                      dedupeRoutes()（去掉请求逐字节相同的路由）
                      （零依赖，只用全局 fetch；不启动任何子进程）
+lib/plan-preamble.js 客户端指纹层：官方 system preamble（逐字节固化）+ 三项指纹头
+                     （authorization / x-api-key / user-agent）。zcode.z.ai 端点必需，
+                     缺了就是 405 3012；api.z.ai / open.bigmodel.cn 不需要
 lib/plan-auth.js     设备码 OAuth 登录 + AES-256-GCM 凭证加解密 + 插件自有凭证存储
 lib/plan-routes.js   路由表：读客户端 builtin release → providerId/baseUrl/模型清单；
                      读不到降级到内置快照（10 条路由），所以没装客户端也能用。

@@ -1275,12 +1275,15 @@ test('stream() sends the request to the right endpoint with the right auth heade
 test('stream() uses Bearer auth for a start-plan route and reports a quota answer as RATE_LIMIT with the upstream code', async () => {
   /** @type {any} */
   let headers
+  /** @type {any} */
+  let fetchInitBody
   const adapter = makeAdapter({
     // Explicit mode pins exactly one route, so this isolates the start-plan header shape from
     // the merged-mode failover chain (which would go on to try the coding-plan route).
     config: { planRouteMode: 'explicit' },
     fetchImpl: /** @type {typeof fetch} */ (async (_url, init) => {
       headers = init?.headers
+      fetchInitBody = init?.body
       // zcode-plan answers HTTP 200 with a business error code — the 200-must-still-be-an-error path.
       return new Response('{"code":1005,"msg":"exceed quota limit","logid":"2026102708261034"}', {
         status: 200,
@@ -1296,7 +1299,14 @@ test('stream() uses Bearer auth for a start-plan route and reports a quota answe
     return true
   })
   assert.equal(headers.authorization, 'Bearer jwt-token')
-  assert.equal(headers['x-api-key'], undefined)
+  // 2026-10-31 实测：`zcode.z.ai` 端点还要求 x-api-key 携带同一个 JWT 与 ZCode 指纹 UA，
+  // 否则请求在指纹层就被 405/3012 拦掉（见 lib/plan-preamble.js）。
+  assert.equal(headers['x-api-key'], 'jwt-token')
+  assert.equal(headers['user-agent'].startsWith('ZCode/'), true)
+  // 请求体里的 system 必须是合规文本块数组，而不是单个字符串。
+  const sent = JSON.parse(String(/** @type {any} */ (fetchInitBody)))
+  assert.equal(Array.isArray(sent.system), true, 'the zcode-plan endpoint rejects a string system')
+  assert.equal(sent.system[0].text, 'You are ZCode, an interactive agent')
 })
 
 test('stream() surfaces a missing credential as AUTH before any request is sent', async () => {

@@ -2,6 +2,78 @@
 
 本项目的所有重要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.11.0] - 2026-10-31
+
+**直连通道真正可用：穿过 `zcode.z.ai` 的客户端指纹层，Start Plan 额度可以消耗了。**
+
+用户报的现象：额度到账后，直连通道仍然失败 —— `plan-turn` 报
+`RATE_LIMIT … (上游 code=1309 … 套餐已到期)`，而手发同样的请求拿到的是
+`405 {"code":3012,"msg":"request has been blocked due to unusual activity."}`。
+
+### 根因
+
+`zcode.z.ai` 的套餐端点前面有一层**客户端指纹校验**，它排在鉴权和额度之前：
+
+- 指纹不通过 → `405 / 3012`，根本到不了业务层；
+- 指纹通过、但额度不足 → 业务层的 `1005 / 1309`。
+
+0.7.0 那批实测之所以"看起来不需要指纹"，是因为当时**额度已耗尽**：业务层的
+`1005 exceed quota limit` 先于指纹校验返回，把这一层完全遮住了。额度真的到账之后，
+同样的请求才开始统一回 3012。这是 0.7.0 文档里那条结论的修正。
+
+### 实测出来的最小合规条件
+
+用真实 ZCode agent 抓包（`NODE_OPTIONS=--require` 钩子拦 `globalThis.fetch`），
+再逐项消融，得到两条独立要求：
+
+**请求头**（缺任一即 405；只有 `authorization` 是 405、只有 `x-api-key` 是 401）：
+
+| 头 | 值 |
+|---|---|
+| `authorization` | `Bearer <zcodejwttoken>` |
+| `x-api-key` | **同一个** `zcodejwttoken`（不是 coding-plan key） |
+| `user-agent` | 必须含 `ZCode/<版本>` |
+
+**请求体** `system` 必须是文本块数组，不能是单个字符串：
+
+- 长度必须是 **2 或 3 块**（1 块 405、4 块 405）；
+- 第 1 块固定 `You are ZCode, an interactive agent`；
+- 第 2 块必须是官方 preamble 的前缀，实测边界 **1228 字符失败 / 1232 通过**；
+- 真正的 system prompt 放最后一块。
+
+只用 lorem 凑长度不行 —— 校验的是**内容**而不只是长度。
+
+### 变更
+
+- 新增 `lib/plan-preamble.js`：逐字节固化官方 preamble、`buildClientSystem` /
+  `upgradeRequestSystem`（system 升级成合规数组）、`applyClientHeaders`（补齐三项指纹头）、
+  `requiresClientFingerprint`（只对 `zcode.z.ai` 的 origin 生效）、`checkClientHeaders`（自检）。
+- `lib/plan-client.js`：`buildHeaders` 与 `streamMessages` 在发送前套用上述两层。
+  `api.z.ai` / `open.bigmodel.cn` 的 coding-plan 端点**不受影响**（不需要指纹，加头反而有风险）。
+- `lib/diagnostics.js`：`plan-turn` 新增 `fingerprint` / `client` 两行自检；
+  `quota` 改用 `billing/balance`（`billing/current` 在额度到账后返回空 data，读不到余额），
+  并显示剩余 / 已用 / 到期时间。
+- `lib/plan-quota.js`：新增 `normalizeBalance` / `normalizeBalances`，`balances` 不再透传
+  snake_case 原始条目。
+- 测试从 367 → 378（新增 `test/plan-preamble.test.mjs` 11 条，锁定上面每一条实测边界）。
+
+### 验证
+
+真实网络、真实额度（2026-10-30 到账的 Start Plan，500M token）：
+
+```
+plan-turn --model GLM-5.3-Flash
+  fingerprint required (zcode.z.ai plan endpoint)
+  client     headers complete; system preamble applied as a block array
+  route    account:bigmodel-start-plan answered
+  done     end_turn
+  reply    "pong"
+  events   34, 2569ms
+```
+
+`quota` 现在读得到余额：`remaining 499,755,434 (100.0% left)`。
+DSH 适配器本体（`adapter.stream()`）也跑通了：`reasoning` + `text: "pong"`。
+
 ## [0.10.0] - 2026-10-27
 
 **插件页卡片：按通道分区，不再显示错误的模型清单。**

@@ -88,7 +88,10 @@ test('resolvePlanRoute maps every measured provider family to its measured endpo
   assert.equal(startZai.authKind, 'bearer-jwt')
   const startHeaders = startZai.buildHeaders()
   assert.equal(startHeaders.authorization, 'Bearer jwt-token')
-  assert.equal(startHeaders['x-api-key'], undefined, 'the start-plan endpoint must not get x-api-key')
+  // 2026-10-31 实测：`zcode.z.ai` 的套餐端点同时要求 `x-api-key` 携带同一个 JWT
+  // （只有 Bearer 是 405/3012）。这是客户端指纹层的一部分，见 lib/plan-preamble.js。
+  assert.equal(startHeaders['x-api-key'], 'jwt-token', 'the start-plan endpoint also needs the JWT in x-api-key')
+  assert.equal(startHeaders['user-agent'].startsWith('ZCode/'), true, 'the client fingerprint needs a ZCode user-agent')
 
   const startBigmodel = resolvePlanRoute({ providerId: 'account:bigmodel-start-plan', credentials })
   assert.equal(startBigmodel.baseUrl, PLAN_ENDPOINTS['start-plan'], 'both start-plan families share the zcode-plan endpoint')

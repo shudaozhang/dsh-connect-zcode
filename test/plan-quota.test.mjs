@@ -693,7 +693,22 @@ test('fetchBillingBalance never throws and returns the raw balances array on suc
   assert.equal(result.status, 200)
   assert.equal(result.serverTime, 1793089331)
   assert.equal(result.logid, 'lg-bal')
-  assert.deepEqual(result.balances, payload.data.balances, 'balances is passed through untouched until the shape is verified')
+  // balances 现在会被归一（snake_case → camelCase）：它是"还剩多少"的权威来源，
+  // 额度到账后 UI 与诊断都要读它，透传原始条目会让调用方各自再解一遍。
+  assert.deepEqual(result.balances, [
+    {
+      bucketId: 'bucket_1',
+      planId: 'zcode-v3-start-plan-0817',
+      entitlementId: 'ent_1',
+      showName: '',
+      meter: 'model_usage',
+      unitType: 'token',
+      capabilities: [],
+      totalUnits: 3000000,
+      usedUnits: 0,
+      remainingUnits: 3000000,
+    },
+  ])
   assert.deepEqual(result.plans, [])
   assert.equal(new URL(calls[0].url).pathname, QUOTA_ENDPOINTS.balance)
 })
