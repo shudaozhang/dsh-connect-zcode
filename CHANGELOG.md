@@ -2,6 +2,72 @@
 
 本项目的所有重要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.12.0] - 2026-11-01
+
+**模型选择器里显示套餐额度；把 3012 归类为「上游 WAF 拦截」而不是可重试错误。**
+
+### 一、3012 不是额度问题（排查结论）
+
+用户报「zcode 额度还在但又报错」，截图里是
+`RATE_LIMIT … 已重试模型请求 (5/5) … 上游 code=1309 套餐已到期`。
+
+实测（2026-11-01，真实额度剩余 497,439,053 / 500,000,000）：
+
+| 检查项 | 结果 |
+|---|---|
+| `billing/balance` | **200**，`hasActiveStartPlan: true`，额度确实还在 |
+| `POST /api/v1/zcode-plan/anthropic/v1/messages` | **405 `{"code":3012}`** |
+| ZCode **官方 agent 自己**打同一条路径 | **同样 3012**（`turn` 命令实测） |
+| `POST /api/v1/off-peak/anthropic/v1/messages`（同域、同 token、同套头） | **400 / 3001 到达业务层** |
+| `POST /api/v1/ultra/anthropic/v1/messages` | **401 到达业务层** |
+| `authorization: Bearer <本机 JWT>` | **3012** |
+| `authorization: Bearer <任意其它字符串>` | 401（穿过 WAF） |
+| `user-agent`/`x-api-key`/`cookie`/指纹头 任意组合 | 不改变结果 |
+| 直连 vs 走代理 | 结果相同（不是出口 IP 问题） |
+
+**根因**：`zcode.z.ai` 的 ESA WAF 对 `/api/v1/zcode-plan/anthropic/v1/messages` 与
+`/api/v1/highspeed/anthropic/v1/messages` 这两条**精确路径**开了风控规则，只拦 POST +
+`authorization` 头。它位于鉴权与额度**之前**，所以与账号有无额度无关。
+**连官方客户端自己也被拦** —— 这是上游策略变更，插件侧无解。
+
+#### 变更
+
+- `classifyPlanError` 新增 `blocked` 类别（`3012` → `BLOCKED`）：
+  - `retryable: false` —— 否则 DSH 会空转重试 5 次（截图里那 8 秒就是这么浪费的）；
+  - **不进入 `FAILOVER_CODES`** —— 同域另一条被拦路径换过去只是再吃一次 3012；
+  - 错误文案直接写明「不是额度问题、也不是配置错误」并列出实测对照，避免用户去续费或改配置。
+- `plan-turn` 诊断新增一段 `blocked` 分支，把上表的事实逐条打出来，并在 JSON facts 里
+  带 `blockedByWaf: true`。
+
+### 二、套餐额度显示
+
+`listModels()` / `resolveModel()` 现在会在模型 `description` 里挂当前额度：
+
+```
+GLM-5.3-Flash  start → coding → idle → fast (10 routes) · quota 4.97 亿/5.00 亿 (99%)
+GLM-5.2        start (2 routes) · quota: no plan for GLM-5.2
+GLM-5.3        coding → idle → fast (8 routes) · quota: no plan for GLM-5.3
+```
+
+为什么挂在 `description`：DSH 没有给插件「往面板塞自定义数据」的通道 —— 客户端只能拿到
+`modelCatalog()` 与 `configForms`。模型信息的 `description` 是唯一一个 **Host 能写、
+用户在选择器里能看见** 的字段。
+
+三条硬约束：
+
+1. **永不抛出** —— 额度查询挂在 `listModels()` 里，失败只让描述出现 `quota unknown (...)`，
+   绝不连累列模型。2026-11-01 恰好就是「模型端点挂了、额度接口正常」，反过来也必须成立。
+2. **按模型区分** —— 一份 Start Plan 只给 `GLM-5.3-Flash` 额度，其余模型走 coding-plan。
+   所以不能每个模型都显示同一个总量，那样会让人以为 `GLM-5.3` 也有这么多。
+   没有对应额度时明确写 `no plan for <model>`，而不是显示成 0。
+3. **失败不显示 0** —— 写 `unknown (reason)`。`0` 会被读成「额度用完了」，比不显示更糟。
+
+新增 `lib/plan-quota-snapshot.js`：`QuotaSnapshotter`（TTL 缓存 + 失败指数退避 +
+并发合并，避免打开选择器就把上游打爆）、`describeQuota`、`summarizeBalances`、
+`balanceMatchesModel`、`formatUnitCount`。
+
+测试 392 通过（新增 `test/plan-quota-snapshot.test.mjs` 11 条 + 适配器/分类 3 条）。
+
 ## [0.11.0] - 2026-10-31
 
 **直连通道真正可用：穿过 `zcode.z.ai` 的客户端指纹层，Start Plan 额度可以消耗了。**

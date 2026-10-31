@@ -170,8 +170,40 @@ POST https://open.bigmodel.cn/api/anthropic/v1/messages
 > 于是「拿到业务码」被读成了「指纹不存在」。额度到账后 3012 立刻出现。
 > 详见 [`docs/official-api-access.md`](docs/official-api-access.md)。
 
+**指纹补对了也可能撞上 3012（0.12.0 起单独归类）**：`/zcode-plan/anthropic/v1/messages`
+与 `/highspeed/anthropic/v1/messages` 这两条**精确路径**上有一层上游 WAF 风控，只拦
+POST + `authorization` 头。它排在鉴权与额度**之前**，所以：
+
+- 与账号有没有额度**无关**（`quota` 命令同时能读到剩余额度）；
+- **ZCode 官方客户端自己也会被拦**（同一条路径，同样的 3012）；
+- 同一 token 打 `off-peak` / `ultra` 端点**能正常到达业务层**。
+
+插件把它归到 `BLOCKED`：**不重试**（否则就是截图里那「已重试 5/5、8s」的空转），
+**不 failover**（同域另一条被拦路径换过去也只是再吃一次 3012），错误文案直接写明
+「不是额度问题，也不是配置错误」。`plan-turn` 会把实测对照逐条打出来。
+
+遇到它只有两条路：等上游解除，或改用 `transport: agent`（走官方 agent 通道）。
+
 鉴权形态按家族区分：`zcode-plan` 端点只收 Bearer JWT，`api.z.ai` / `open.bigmodel.cn`
 只收 `x-api-key`；交叉用错一律 `401`。
+
+### 套餐额度显示
+
+模型选择器里每个模型的说明会带当前额度（0.12.0 起）：
+
+```
+GLM-5.3-Flash  start → coding → idle → fast (10 routes) · quota 4.97 亿/5.00 亿 (99%)
+GLM-5.2        start (2 routes) · quota: no plan for GLM-5.2
+GLM-5.3        coding → idle → fast (8 routes) · quota: no plan for GLM-5.3
+```
+
+额度是**按模型**发的：一份 Start Plan 只给 `GLM-5.3-Flash`，其余模型走 coding-plan，
+所以没有对应额度的模型会明确写 `no plan for <model>`，而不是显示 0。
+
+查不到额度时写 `quota unknown (<reason>)` 而不是 `0` —— `0` 会被读成「额度用完了」。
+额度查询**永不阻塞列模型**：失败只是让说明里出现 `unknown`，模型照常可选。
+
+想看完整数字用 `quota` 命令（含剩余 / 已用 / 到期时间）。
 
 直连通道的模型清单有两种投影方式，由 `planRouteMode` 选择（默认 `merged`）：
 
@@ -623,6 +655,9 @@ lib/plan-routes.js   路由表：读客户端 builtin release → providerId/bas
                      读不到降级到内置快照（10 条路由），所以没装客户端也能用。
                      另有 mergePlanModels()（模型→路由链）与 routesForModel()
 lib/plan-quota.js    额度查询（billing/current | balance | preview）+ 归一化 + TTL 缓存
+lib/plan-quota-snapshot.js
+                     额度运行时快照：挂在 listModels() 里给模型描述挂额度；
+                     TTL 缓存 + 失败退避 + 并发合并，**永不抛出**（查不到只是 unknown）
 lib/plan-adapter.js  ZcodePlanAdapter extends LlmAdapter：把上面几块接成 provider zcode-plan；
                      planRouteMode=merged|explicit 两种模型清单投影共用一条代码路径
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-connect-zcode",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "把本机 ZCode 桌面客户端的模型接入 DeepSeek​ Harness：自动发现客户端安装与数据目录，按客户端自己的方式启动内置 agent，注册编码套餐路由，并支持逐模型启用/停用。",
   "license": "AGPL-3.0",
   "author": "kyle123740",
@@ -42,7 +42,8 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json",
     "./client-signing": "./lib/client-signing.js",
-    "./plan-preamble": "./lib/plan-preamble.js"
+    "./plan-preamble": "./lib/plan-preamble.js",
+    "./plan-quota-snapshot": "./lib/plan-quota-snapshot.js"
   },
   "dsh": {
     "bundle": {

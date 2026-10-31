@@ -257,6 +257,22 @@ test('parseErrorEnvelope understands both measured upstream error shapes', () =>
   assert.equal(parseErrorEnvelope('null'), undefined)
 })
 
+test('classifyPlanError treats the upstream WAF block (3012) as blocked, not retryable and not failover', () => {
+  // 2026-11-01 实测：`/api/v1/zcode-plan/anthropic/v1/messages` 对带 authorization 的 POST
+  // 一律回 405 + 3012，而同一 token 打 off-peak / ultra 正常，官方 agent 自己也被拦。
+  // 归类错误会有两个直接后果：DSH 空转重试 5 次（用户看到"已重试模型请求 (5/5)"），
+  // 以及 failover 到同域另一条同样被拦的路径。
+  const blocked = classifyPlanError(405, '{"code":3012,"msg":"request has been blocked due to unusual activity.","logid":"lg"}')
+  assert.equal(blocked.kind, 'blocked')
+  assert.equal(blocked.retryable, false, 'a WAF block must never be retried: retrying only burns time')
+  assert.equal(blocked.code, 3012)
+  assert.equal(blocked.status, 405)
+  assert.equal(blocked.message, 'request has been blocked due to unusual activity.')
+  assert.equal(blocked.logid, 'lg')
+  // 不 failover：同域另一条被拦路径换过去也只是再吃一次 3012。
+  assert.equal(isFailoverError({ code: 'BLOCKED' }), false, 'BLOCKED must not trigger a route switch')
+})
+
 test('classifyPlanError maps the measured business codes to their kind and keeps the raw code/message', () => {
   const quota = classifyPlanError(200, '{"code":1005,"msg":"exceed quota limit","logid":"lg"}')
   assert.equal(quota.kind, 'quota', 'a 200 carrying 1005 is still a quota failure -- this is the trap')

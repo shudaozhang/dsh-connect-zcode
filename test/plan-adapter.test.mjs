@@ -119,6 +119,31 @@ const CREDENTIALS = {
 }
 
 /**
+ * 默认注入的「离线额度快照器」。
+ *
+ * `listModels()` / `resolveModel()` 现在会挂额度描述，而额度查询是真实 HTTP。
+ * 测试不该碰网络（也不该因为上游挂掉就失败），所以默认注入一个**恒定失败**的快照器：
+ * 描述里出现 `quota unknown (...)`，其余断言照常。想验证额度文案的用例自己注入
+ * 一个成功形态的快照器（见 `quotaFetch`）。
+ */
+const OFFLINE_QUOTA = {
+  /** @returns {Promise<any>} 恒定失败快照。 */
+  get: async () => ({ ok: false, fetchedAt: 0, reason: 'offline', message: 'not injected' }),
+  /** @returns {undefined} 没有缓存。 */
+  peek: () => undefined,
+}
+
+/** 造一个返回固定余额的假 fetch（给额度文案用例）。 */
+function quotaFetch(balances) {
+  return /** @type {typeof fetch} */ (async () => new Response(JSON.stringify({
+    code: 0,
+    msg: '',
+    data: { server_time: 1793467000, plans: [], balances },
+    logid: 'lg-quota-test',
+  }), { status: 200, headers: { 'content-type': 'application/json' } }))
+}
+
+/**
  * 造一个直接返回固定文本的假 fetch。
  *
  * @param {string} body 响应体。
@@ -160,7 +185,7 @@ function sseFetch(sse) {
  * @param {Record<string, string>} [options.planCredentials] 插件自有凭证（`login` 写的那份）。
  * @returns {ZcodePlanAdapter} 适配器。
  */
-function makeAdapter({ credentials = CREDENTIALS, fetchImpl, providers = PROVIDERS, config = {}, logger, planCredentials } = {}) {
+function makeAdapter({ credentials = CREDENTIALS, fetchImpl, providers = PROVIDERS, config = {}, logger, planCredentials, quotaSnapshotter = OFFLINE_QUOTA } = {}) {
   const adapter = new ZcodePlanAdapter({
     options: makeOptions(config),
     readCredentials: () => credentials,
@@ -168,6 +193,7 @@ function makeAdapter({ credentials = CREDENTIALS, fetchImpl, providers = PROVIDE
     ...(planCredentials === undefined ? {} : { readPlanCredentials: () => planCredentials }),
     ...(fetchImpl === undefined ? {} : { fetchImpl }),
     ...(logger === undefined ? {} : { logger }),
+    ...(quotaSnapshotter === undefined ? {} : { quotaSnapshotter }),
   })
   // 模型能力走注入的规则，不读真实 release。
   adapter.traitSourceCache = { rules: MODEL_RULES, source: 'injected' }
@@ -469,7 +495,7 @@ test('adapter hides the whole model only when the deny list names the model itse
   }).listModels(PLAN_PROVIDER_ID)
   const flash = oneRoute.find((entry) => entry.id === 'GLM-5.3-Flash')
   assert.ok(flash !== undefined, 'the model must survive a single-route denial')
-  assert.equal(flash?.description, 'coding')
+  assert.match(flash?.description ?? '', /^coding(?: · quota .*)?$/u)
 })
 
 // ---------------------------------------------------------------------------
@@ -546,10 +572,10 @@ test('listModels advertises a pinned model with a single-route chain', async () 
     config: { planPinnedRoutes: ['account:zai-individual-coding-plan#GLM-5.3-Flash'] },
   }).listModels(PLAN_PROVIDER_ID)
   const flash = models.find((entry) => entry.id === 'GLM-5.3-Flash')
-  assert.equal(flash?.description, 'coding · pinned, no failover')
+  assert.match(flash?.description ?? '', /^coding · pinned, no failover(?: · quota .*)?$/u)
   // Only that one model is pinned; the other keeps its chain untouched.
   const unpinned = models.find((entry) => entry.id === 'GLM-5.3')
-  assert.equal(unpinned?.description, 'coding')
+  assert.match(unpinned?.description ?? '', /^coding(?: · quota .*)?$/u)
 })
 
 test('stream() makes exactly one attempt for a pinned model and never fails over', async () => {
@@ -578,7 +604,7 @@ test('a bad pin is ignored rather than silently changing the model list', async 
   })
   const models = await adapter.listModels(PLAN_PROVIDER_ID)
   // Nothing was pinned, so the chains are intact.
-  assert.equal(models.find((entry) => entry.id === 'GLM-5.3-Flash')?.description, 'start → coding (2 routes)')
+  assert.match(models.find((entry) => entry.id === 'GLM-5.3-Flash')?.description ?? '', /^start → coding \(2 routes\)(?: · quota .*)?$/u)
   assert.ok(warnings.some((line) => /needs "<providerId>#<modelId>"/u.test(line)), 'a bare id must be reported')
   assert.ok(warnings.some((line) => /models not in the plan catalogue/u.test(line)), 'an unknown model must be reported')
   assert.ok(warnings.some((line) => /do not serve those models/u.test(line)), 'a wrong route must be reported')
@@ -627,7 +653,7 @@ test('listModels (default merged) advertises one entry per model with the fallba
   assert.deepEqual(models.map((entry) => entry.id), ['GLM-5.3-Flash', 'GLM-5.2', 'GLM-5-Turbo', 'GLM-5.3'])
   const flash = models.find((entry) => entry.id === 'GLM-5.3-Flash')
   assert.deepEqual(flash?.inputModalities, ['text', 'image'])
-  assert.equal(flash?.description, 'start → coding (2 routes)')
+  assert.match(flash?.description ?? '', /^start → coding \(2 routes\)(?: · quota .*)?$/u)
   const turbo = models.find((entry) => entry.id === 'GLM-5-Turbo')
   assert.deepEqual(turbo?.inputModalities, ['text'])
   for (const entry of models) {
@@ -642,11 +668,78 @@ test('listModels (explicit) advertises one entry per route-model pair', async ()
   assert.equal(models.length, 5)
   const flash = models.find((entry) => entry.id === 'account:zai-start-plan#GLM-5.3-Flash')
   assert.deepEqual(flash?.inputModalities, ['text', 'image'])
-  assert.equal(flash?.description, 'account:zai-start-plan')
+  assert.match(flash?.description ?? '', /^account:zai-start-plan(?: · quota .*)?$/u)
   for (const entry of models) {
     assert.equal(entry.provider, PLAN_PROVIDER_ID)
     assert.match(entry.id, /^account:[^#]+#[^#]+$/u)
   }
+})
+
+test('listModels shows each model the quota that actually belongs to it', async () => {
+  // 实测：一份 Start Plan 只给 GLM-5.3-Flash 额度，其余模型走的是 coding-plan。
+  // 所以「每个模型都显示同一个总量」是错的 —— 会让用户以为 GLM-5.3 也有这么多额度。
+  const { QuotaSnapshotter } = await import('../lib/plan-quota-snapshot.js')
+  const snapshotter = new QuotaSnapshotter({
+    fetchImpl: quotaFetch([{
+      bucket_id: 'bucket_1',
+      plan_id: 'zcode-v3-start-plan-1030-wk',
+      entitlement_id: 'ent-1',
+      show_name: 'GLM-5.3-Flash',
+      meter: 'model_usage',
+      unit_type: 'token',
+      capabilities: ['model:glm-5.3-flash'],
+      total_units: 500_000_000,
+      used_units: 2_560_947,
+      remaining_units: 497_439_053,
+      available_units: 497_439_053,
+      expires_at: 1_793_581_200,
+    }]),
+    appVersion: '3.17.1',
+  })
+  const models = await makeAdapter({ quotaSnapshotter: snapshotter }).listModels(PLAN_PROVIDER_ID)
+  const flash = models.find((entry) => entry.id === 'GLM-5.3-Flash')
+  assert.match(flash?.description ?? '', /quota 4\.97 亿\/5\.00 亿 \(99%\)/u)
+  const glm53 = models.find((entry) => entry.id === 'GLM-5.3')
+  // 有额度但不属于它 —— 必须说出来，而不是显示成"没额度"。
+  assert.match(glm53?.description ?? '', /quota: no plan for GLM-5\.3/u)
+})
+
+test('listModels still lists every model when the quota lookup fails', async () => {
+  // 关键契约：额度查询挂在 listModels() 里，失败绝不能连累列模型。
+  // 2026-11-01 实测就出现过模型端点被 WAF 拦（3012）而额度接口正常的情况 —— 反过来
+  // （额度接口挂了）也必须能正常列模型。
+  const { QuotaSnapshotter } = await import('../lib/plan-quota-snapshot.js')
+  const failing = new QuotaSnapshotter({
+    fetchImpl: /** @type {typeof fetch} */ (async () => { throw new Error('network down') }),
+  })
+  const models = await makeAdapter({ quotaSnapshotter: failing }).listModels(PLAN_PROVIDER_ID)
+  assert.equal(models.length, 4, 'the model list must survive a quota outage')
+  for (const entry of models) {
+    assert.match(entry.description ?? '', /quota unknown \(network\)/u)
+  }
+})
+
+test('resolveModel carries the quota fragment too', async () => {
+  const { QuotaSnapshotter } = await import('../lib/plan-quota-snapshot.js')
+  const snapshotter = new QuotaSnapshotter({
+    fetchImpl: quotaFetch([{
+      bucket_id: 'b1',
+      plan_id: 'p',
+      entitlement_id: 'e1',
+      show_name: 'GLM-5.3-Flash',
+      meter: 'model_usage',
+      unit_type: 'token',
+      capabilities: ['model:glm-5.3-flash'],
+      total_units: 1000,
+      used_units: 250,
+      remaining_units: 750,
+      available_units: 750,
+    }]),
+    appVersion: '3.17.1',
+  })
+  const adapter = makeAdapter({ quotaSnapshotter: snapshotter })
+  const resolved = await adapter.resolveModel(PLAN_PROVIDER_ID, 'GLM-5.3-Flash')
+  assert.match(resolved.description ?? '', /quota 750\/1\.0 千|quota 750/u)
 })
 
 test('listModels honours the plan channel own planEnabledModelIds / planDisabledModelIds', async () => {
@@ -698,7 +791,7 @@ test('resolveModel reports context, output cap, modalities and reasoning from th
   assert.deepEqual(flash.reasoning?.efforts.map((effort) => effort.id), ['low', 'high', 'max'])
   assert.equal(flash.reasoning?.defaultEffort, 'max')
   // The description shows the whole chain, so the picker explains what will be tried.
-  assert.equal(flash.description, 'start → coding (2 routes)')
+  assert.match(flash.description, /^start → coding \(2 routes\)(?: · quota .*)?$/u)
 
   const turbo = await adapter.resolveModel(PLAN_PROVIDER_ID, 'GLM-5-Turbo')
   assert.deepEqual(turbo.context, { contextWindow: 200000 })
